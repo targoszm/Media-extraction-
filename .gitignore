@@ -169,3 +169,8 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+
+*.mp3
+*.mkv
+.DS_Store
