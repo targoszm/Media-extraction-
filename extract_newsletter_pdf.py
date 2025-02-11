@@ -29,7 +29,7 @@ file_ref = client.files.upload(file="files/citrini_24_trades.pdf")
 
 # prepare the prompt
 extract_themes_prompt = """
-Attached a a list of thematic trade ideas for 2025. Analyze the following text and extract all of the theme names discussed.
+Attached a a list of thematic trade ideas for 2024. Analyze the following text and extract all of the theme names discussed.
 """
 
 # count the tokens in the prompt and file
