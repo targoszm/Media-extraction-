@@ -2,3 +2,7 @@ google-genai
 python-dotenv
 yt-dlp
 pillow
+streamlit
+yfinance
+pandas
+altair
