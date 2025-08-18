@@ -68,13 +68,13 @@ export default function SimpleMediaExtractor() {
           return {
             videoUrl: fileUrl,
             audioUrl: fileUrl, // Note: Real audio extraction would require server-side processing
-            transcript: `[00:00] Speaker 1: Video analysis from ${file.name}\n[00:15] Speaker 2: Content successfully processed for preview.\n[00:30] Speaker 1: Video and audio tracks are ready for download.\n[00:45] Speaker 2: For full audio extraction, consider uploading audio separately.`,
+            text: `Video File: ${file.name}\n\nTo extract text content from this video, you need:\n\n1. Speech-to-text processing (requires AssemblyAI API key)\n2. Audio extraction from video (requires server-side processing)\n3. OCR for any text visible in the video frames\n\nCurrently showing video preview only. For full text extraction, please:\n- Extract audio separately and upload as MP3/WAV\n- Configure AssemblyAI API key in environment variables\n- Use dedicated video processing services`,
           }
         case "audio":
           console.log("[v0] Processing audio file")
           return {
             audioUrl: fileUrl,
-            transcript: `[00:00] Speaker 1: Audio file ${file.name} processed\n[00:12] Speaker 2: Voice content extracted and ready.\n[00:25] Speaker 1: Playback and download available.\n[00:38] Speaker 2: For speech-to-text, connect AssemblyAI API key.`,
+            text: `Audio File: ${file.name}\n\nTo extract text from this audio file, you need:\n\n1. AssemblyAI API key configured\n2. Speech-to-text processing enabled\n3. Speaker diarization for multiple speakers\n\nCurrently showing audio preview only. To get real transcripts:\n- Add ASSEMBLYAI_API_KEY to environment variables\n- Enable speech-to-text processing in settings\n- The system will then provide real transcripts with speaker identification`,
           }
         case "text":
           console.log("[v0] Processing text file")
