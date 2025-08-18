@@ -24,6 +24,7 @@ interface ExtractionOptions {
   video: boolean
   text: boolean
   metadata: boolean
+  script: boolean
 }
 
 interface UploadedFile {
@@ -71,15 +72,15 @@ export function MediaExtractor() {
 
   const getDefaultExtractionOptions = (fileType: string): ExtractionOptions => {
     if (fileType.startsWith("video/")) {
-      return { audio: true, video: true, text: false, metadata: true }
+      return { audio: true, video: true, text: false, metadata: true, script: true }
     } else if (fileType.startsWith("audio/")) {
-      return { audio: true, video: false, text: false, metadata: true }
+      return { audio: true, video: false, text: false, metadata: true, script: true }
     } else if (fileType === "application/pdf") {
-      return { audio: false, video: false, text: true, metadata: true }
+      return { audio: false, video: false, text: true, metadata: true, script: false }
     } else if (fileType.startsWith("image/")) {
-      return { audio: false, video: false, text: true, metadata: true }
+      return { audio: false, video: false, text: true, metadata: true, script: false }
     }
-    return { audio: false, video: false, text: true, metadata: true }
+    return { audio: false, video: false, text: true, metadata: true, script: false }
   }
 
   const updateExtractionOptions = (fileId: string, options: ExtractionOptions) => {
@@ -127,7 +128,7 @@ export function MediaExtractor() {
         type: urlType,
         status: "previewing",
         progress: 0,
-        extractionOptions: { audio: true, video: urlType === "youtube", text: false, metadata: true },
+        extractionOptions: { audio: true, video: urlType === "youtube", text: false, metadata: true, script: true },
       }
 
       setFiles((prev) => [...prev, newUrlFile])
@@ -320,6 +321,8 @@ export function MediaExtractor() {
           return "Extract Text Content"
         case "metadata":
           return "Extract Metadata"
+        case "script":
+          return "Generate Script/Dialogue"
       }
     }
 
@@ -329,11 +332,13 @@ export function MediaExtractor() {
         if (key === "audio") return type.startsWith("video/") || type.startsWith("audio/")
         if (key === "video") return type.startsWith("video/")
         if (key === "text") return type === "application/pdf" || type.startsWith("image/")
+        if (key === "script") return type.startsWith("video/") || type.startsWith("audio/")
         return true
       } else if (file.url) {
         if (key === "audio") return true
         if (key === "video") return file.type === "youtube"
         if (key === "text") return false
+        if (key === "script") return true
         return true
       }
       return true
