@@ -189,27 +189,50 @@ function extractTopics(text: string): string[] {
 
 export async function POST(request: NextRequest) {
   try {
-    console.log("[v0] Received request, attempting to parse JSON...")
+    console.log("[v0] Received request, attempting to parse form data...")
 
-    let requestBody
+    let formData: FormData
+    let fileBuffer: Buffer
+    let fileName: string
+    let fileType: string
+    let extractionOptions: any = {}
+
     try {
-      const rawBody = await request.text()
-      console.log("[v0] Raw request body (first 200 chars):", rawBody.substring(0, 200))
-      requestBody = JSON.parse(rawBody)
+      formData = await request.formData()
+      const file = formData.get("file") as File
+
+      if (!file) {
+        throw new Error("No file found in form data")
+      }
+
+      fileName = file.name
+      fileType = file.type
+      console.log("[v0] Processing file:", fileName, "Type:", fileType)
+
+      // Convert file to buffer
+      const arrayBuffer = await file.arrayBuffer()
+      fileBuffer = Buffer.from(arrayBuffer)
+      console.log("[v0] File buffer size:", fileBuffer.length)
+
+      // Get extraction options if provided
+      const optionsString = formData.get("extractionOptions") as string
+      if (optionsString) {
+        try {
+          extractionOptions = JSON.parse(optionsString)
+        } catch (e) {
+          console.log("[v0] No extraction options provided or invalid JSON")
+        }
+      }
     } catch (parseError) {
-      console.error("[v0] JSON parsing failed:", parseError)
-      console.error("[v0] Raw body that failed to parse:", await request.text())
+      console.error("[v0] Form data parsing failed:", parseError)
       return NextResponse.json(
         {
-          error: "Invalid JSON in request body: " + (parseError as Error).message,
+          error: "Invalid form data: " + (parseError as Error).message,
         },
         { status: 400 },
       )
     }
 
-    const { fileId, fileData, fileName, fileType, extractionOptions } = requestBody
-
-    console.log("[v0] Processing file:", fileName, "Type:", fileType)
     console.log("[v0] Extraction options:", extractionOptions)
 
     if (!process.env.GOOGLE_API_KEY) {
@@ -240,10 +263,9 @@ export async function POST(request: NextRequest) {
 
     if (fileType.startsWith("image/")) {
       console.log("[v0] Processing image with Gemini AI...")
-      const imageBuffer = Buffer.from(fileData, "base64")
       const imagePart = {
         inlineData: {
-          data: imageBuffer.toString("base64"),
+          data: fileBuffer.toString("base64"),
           mimeType: fileType,
         },
       }
@@ -310,17 +332,15 @@ CONFIDENCE: [High/Medium/Low]`
       console.log("[v0] Processing PDF with Gemini AI...")
 
       try {
-        const pdfBuffer = Buffer.from(fileData, "base64")
-
         // Check PDF size
-        if (pdfBuffer.length > 20 * 1024 * 1024) {
+        if (fileBuffer.length > 20 * 1024 * 1024) {
           // 20MB limit for PDFs
           throw new Error("PDF file too large for processing (max 20MB)")
         }
 
         const pdfPart = {
           inlineData: {
-            data: pdfBuffer.toString("base64"),
+            data: fileBuffer.toString("base64"),
             mimeType: fileType,
           },
         }
@@ -400,7 +420,6 @@ DOCUMENT SUMMARY: [Brief summary of the document]`
       }
     } else if (fileType.startsWith("audio/") || fileType.startsWith("video/")) {
       const isVideo = fileType.startsWith("video/")
-      const fileBuffer = Buffer.from(fileData, "base64")
 
       console.log("[v0] Processing", isVideo ? "video" : "audio", "file...")
 
@@ -479,7 +498,6 @@ DOCUMENT SUMMARY: [Brief summary of the document]`
     console.log("[v0] Processing completed for:", fileName)
     return NextResponse.json({
       success: true,
-      fileId,
       results,
     })
   } catch (error) {
