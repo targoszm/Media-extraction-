@@ -3,7 +3,7 @@ import { Users, Clock, Hash, TrendingUp } from "lucide-react"
 interface ResultsDisplayProps {
   results: {
     transcript?: string
-    speakers?: string[]
+    speakers?: (string | { id: string; name: string; segments?: any[]; duration?: string })[]
     duration?: string
     extractedData?: {
       keyPoints?: string[]
@@ -60,7 +60,9 @@ export function ResultsDisplay({ results }: ResultsDisplayProps) {
           {speakers.length > 0 ? (
             speakers.map((speaker, index) => (
               <div key={index} className="flex gap-3">
-                <span className="speaker-label">{speaker}</span>
+                <span className="speaker-label">
+                  {typeof speaker === "string" ? speaker : speaker.name || `Speaker ${index + 1}`}
+                </span>
                 <p className="text-sm text-muted-foreground flex-1">
                   {transcript.slice(index * 50, (index + 1) * 50)}...
                 </p>
