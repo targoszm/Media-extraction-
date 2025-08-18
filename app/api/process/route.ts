@@ -1,15 +1,14 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { GoogleGenerativeAI } from "@google/generative-ai"
-import { SpeechClient } from "@google-cloud/speech"
+import { AssemblyAI } from "assemblyai"
 import * as fs from "fs"
 import * as path from "path"
 import ffmpeg from "fluent-ffmpeg"
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || "")
 
-const speechClient = new SpeechClient({
-  keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS,
-  projectId: process.env.GOOGLE_CLOUD_PROJECT_ID,
+const assemblyAI = new AssemblyAI({
+  apiKey: process.env.ASSEMBLYAI_API_KEY || "",
 })
 
 async function extractAudioFromVideo(videoBuffer: Buffer): Promise<Buffer> {
@@ -44,115 +43,102 @@ async function extractAudioFromVideo(videoBuffer: Buffer): Promise<Buffer> {
 
 async function processAudioWithSpeechToText(audioBuffer: Buffer, isVideo = false): Promise<any> {
   try {
-    const request = {
-      audio: {
-        content: audioBuffer.toString("base64"),
-      },
-      config: {
-        encoding: "LINEAR16" as const,
-        sampleRateHertz: 16000,
-        languageCode: "en-US",
-        enableAutomaticPunctuation: true,
-        useEnhanced: true,
-        model: isVideo ? "video" : "default",
-        diarizationConfig: {
-          enableSpeakerDiarization: true,
-          minSpeakerCount: 1,
-          maxSpeakerCount: 10,
-        },
-        enableWordTimeOffsets: true,
-      },
+    if (!process.env.ASSEMBLYAI_API_KEY) {
+      throw new Error("AssemblyAI API key not configured")
     }
 
-    const [response] = await speechClient.recognize(request)
+    // Create a temporary file for AssemblyAI upload
+    const tempAudioPath = path.join("/tmp", `audio_${Date.now()}.wav`)
+    fs.writeFileSync(tempAudioPath, audioBuffer)
 
-    if (!response.results || response.results.length === 0) {
-      throw new Error("No speech detected in audio")
+    console.log("[v0] Uploading audio to AssemblyAI...")
+
+    // Upload and transcribe with AssemblyAI
+    const transcript = await assemblyAI.transcripts.transcribe({
+      audio: tempAudioPath,
+      speaker_labels: true, // Enable speaker diarization
+      auto_highlights: true,
+      sentiment_analysis: true,
+      auto_chapters: true,
+      punctuate: true,
+      format_text: true,
+    })
+
+    // Clean up temp file
+    fs.unlinkSync(tempAudioPath)
+
+    if (transcript.status === "error") {
+      throw new Error(`AssemblyAI transcription failed: ${transcript.error}`)
     }
 
-    // Process results to create formatted transcript with speaker diarization
-    let transcript = ""
+    // Process AssemblyAI results
+    let formattedTranscript = ""
     const speakers = new Map()
     const keyPoints = []
 
-    response.results.forEach((result) => {
-      if (result.alternatives && result.alternatives[0]) {
-        const alternative = result.alternatives[0]
+    if (transcript.utterances) {
+      transcript.utterances.forEach((utterance) => {
+        const speaker = utterance.speaker
+        const startTime = Math.floor(utterance.start / 1000) // Convert ms to seconds
+        const timeStr = formatTime(startTime)
 
-        if (alternative.words) {
-          let currentSpeaker = null
-          let currentSegment = ""
-          let segmentStartTime = null
+        formattedTranscript += `[${timeStr}] Speaker ${speaker}: ${utterance.text}\n`
 
-          alternative.words.forEach((word) => {
-            const speakerTag = word.speakerTag || 1
-            const startTime = word.startTime?.seconds || 0
-
-            if (currentSpeaker !== speakerTag) {
-              // New speaker, save previous segment
-              if (currentSegment && currentSpeaker !== null) {
-                const timeStr = formatTime(segmentStartTime || 0)
-                transcript += `[${timeStr}] Speaker ${currentSpeaker}: ${currentSegment.trim()}\n`
-              }
-
-              currentSpeaker = speakerTag
-              currentSegment = ""
-              segmentStartTime = startTime
-
-              // Track speaker info
-              if (!speakers.has(speakerTag)) {
-                speakers.set(speakerTag, {
-                  id: `speaker_${speakerTag}`,
-                  name: `Speaker ${speakerTag}`,
-                  segments: 0,
-                  duration: "0:00",
-                })
-              }
-              speakers.get(speakerTag).segments++
-            }
-
-            currentSegment += word.word + " "
+        // Track speaker info
+        if (!speakers.has(speaker)) {
+          speakers.set(speaker, {
+            id: `speaker_${speaker}`,
+            name: `Speaker ${speaker}`,
+            segments: 0,
+            duration: "0:00",
           })
-
-          // Add final segment
-          if (currentSegment && currentSpeaker !== null) {
-            const timeStr = formatTime(segmentStartTime || 0)
-            transcript += `[${timeStr}] Speaker ${currentSpeaker}: ${currentSegment.trim()}\n`
-          }
-        } else {
-          // Fallback for results without word-level timing
-          transcript += alternative.transcript + "\n"
         }
+        speakers.get(speaker).segments++
+      })
+    } else {
+      // Fallback if no speaker diarization
+      formattedTranscript = transcript.text || "No speech detected in the audio."
+    }
 
-        // Extract key points from transcript segments
-        if (alternative.transcript && alternative.transcript.length > 50) {
-          keyPoints.push(alternative.transcript.substring(0, 100) + "...")
-        }
-      }
-    })
+    // Extract key points from auto_highlights or chapters
+    if (transcript.auto_highlights_result?.results) {
+      transcript.auto_highlights_result.results.forEach((highlight) => {
+        keyPoints.push(highlight.text)
+      })
+    } else if (transcript.chapters) {
+      transcript.chapters.forEach((chapter) => {
+        keyPoints.push(chapter.summary)
+      })
+    }
 
     // Calculate duration and speaker stats
-    const totalDuration = response.totalBilledTime?.seconds || 0
+    const totalDuration = Math.floor((transcript.audio_duration || 0) / 1000)
     const durationStr = formatTime(totalDuration)
 
-    // Update speaker durations (simplified calculation)
+    // Update speaker durations
     const speakerArray = Array.from(speakers.values())
     speakerArray.forEach((speaker, index) => {
       const speakerDuration = Math.floor(totalDuration / speakerArray.length)
       speaker.duration = formatTime(speakerDuration)
     })
 
+    // Get sentiment from AssemblyAI or analyze manually
+    const sentiment =
+      transcript.sentiment_analysis_results?.length > 0
+        ? transcript.sentiment_analysis_results[0].sentiment.toUpperCase()
+        : analyzeSentiment(transcript.text || "")
+
     return {
-      transcript: transcript || "No speech detected in the audio.",
+      transcript: formattedTranscript,
       duration: durationStr,
       speakers: speakerArray,
-      keyPoints: keyPoints.slice(0, 5), // Limit to 5 key points
-      sentiment: analyzeSentiment(transcript),
-      topics: extractTopics(transcript),
-      confidence: response.results[0]?.alternatives?.[0]?.confidence || 0.8,
+      keyPoints: keyPoints.slice(0, 5),
+      sentiment: sentiment,
+      topics: extractTopics(transcript.text || ""),
+      confidence: transcript.confidence || 0.9,
     }
   } catch (error) {
-    console.error("Speech-to-text processing error:", error)
+    console.error("AssemblyAI processing error:", error)
     throw new Error(`Speech processing failed: ${(error as Error).message}`)
   }
 }
@@ -206,6 +192,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: "Google API key not configured. Please add GOOGLE_API_KEY to your environment variables.",
+        },
+        { status: 500 },
+      )
+    }
+
+    if ((fileType.startsWith("audio/") || fileType.startsWith("video/")) && !process.env.ASSEMBLYAI_API_KEY) {
+      return NextResponse.json(
+        {
+          error:
+            "AssemblyAI API key not configured. Please add ASSEMBLYAI_API_KEY to your environment variables for audio/video processing.",
         },
         { status: 500 },
       )
@@ -326,7 +322,7 @@ export async function POST(request: NextRequest) {
           audioBuffer = fileBuffer
         }
 
-        console.log("[v0] Processing audio with Google Speech-to-Text...")
+        console.log("[v0] Processing audio with AssemblyAI...")
         const speechResults = await processAudioWithSpeechToText(audioBuffer, isVideo)
 
         results = {
@@ -348,7 +344,7 @@ export async function POST(request: NextRequest) {
         results = {
           type: isVideo ? "video_analysis" : "audio_analysis",
           fileName,
-          transcript: `Audio processing failed: ${(error as Error).message}. This may be due to audio format compatibility or Google Cloud configuration issues.`,
+          transcript: `Audio processing failed: ${(error as Error).message}. This may be due to audio format compatibility or AssemblyAI configuration issues.`,
           duration: "Unknown",
           speakers: [],
           keyPoints: ["Audio processing error"],
