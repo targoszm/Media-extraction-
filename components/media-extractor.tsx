@@ -202,9 +202,11 @@ export function MediaExtractor() {
     setIsProcessing(true)
 
     try {
-      const maxSize = 50 * 1024 * 1024 // 50MB limit
+      const maxSize = 500 * 1024 * 1024 // 500MB limit
       if (file.size > maxSize) {
-        throw new Error(`File size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds 50MB limit`)
+        throw new Error(
+          `File size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds 500MB limit. Please use a smaller file or compress your media.`,
+        )
       }
 
       // Upload file

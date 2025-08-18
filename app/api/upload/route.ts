@@ -3,7 +3,7 @@ import { type NextRequest, NextResponse } from "next/server"
 export async function POST(request: NextRequest) {
   try {
     const contentLength = request.headers.get("content-length")
-    const maxSize = 50 * 1024 * 1024 // 50MB
+    const maxSize = 500 * 1024 * 1024 // 500MB
 
     if (contentLength && Number.parseInt(contentLength) > maxSize) {
       return NextResponse.json(
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     if (file.size > maxSize) {
       return NextResponse.json(
         {
-          error: `File size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds ${maxSize / 1024 / 1024}MB limit`,
+          error: `File size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds ${maxSize / 1024 / 1024}MB limit. Please use a smaller file or compress your media.`,
         },
         { status: 413 },
       )
