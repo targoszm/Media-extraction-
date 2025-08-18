@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useMemo, useEffect, useRef } from "react"
+import { useState } from "react"
 import { useDropzone } from "react-dropzone"
 import {
   Upload,
@@ -47,79 +47,66 @@ export function MediaExtractor() {
   const [urlInput, setUrlInput] = useState("")
   const [showUrlInput, setShowUrlInput] = useState(false)
 
-  const cleanupRef = useRef<Set<string>>(new Set())
-
-  useEffect(() => {
-    return () => {
-      files.forEach((file) => {
-        if (file.previewUrl && !cleanupRef.current.has(file.id)) {
-          URL.revokeObjectURL(file.previewUrl)
-          cleanupRef.current.add(file.id)
-        }
-      })
-    }
-  }, [files.length]) // Only depend on length, not entire files array
-
-  const onDrop = useCallback((acceptedFiles: File[]) => {
+  const handleFileDrop = (acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map((file) => {
+      const id = Math.random().toString(36).substr(2, 9)
       let previewUrl = ""
+
       if ((file.type.startsWith("image/") || file.type.startsWith("video/")) && file.size < 50 * 1024 * 1024) {
         previewUrl = URL.createObjectURL(file)
       }
 
+      let extractionOptions: ExtractionOptions = {
+        audio: false,
+        video: false,
+        text: true,
+        metadata: true,
+        script: false,
+      }
+
+      if (file.type.startsWith("video/")) {
+        extractionOptions = { audio: true, video: true, text: false, metadata: true, script: true }
+      } else if (file.type.startsWith("audio/")) {
+        extractionOptions = { audio: true, video: false, text: false, metadata: true, script: true }
+      } else if (file.type === "application/pdf") {
+        extractionOptions = { audio: false, video: false, text: true, metadata: true, script: false }
+      } else if (file.type.startsWith("image/")) {
+        extractionOptions = { audio: false, video: false, text: true, metadata: true, script: false }
+      }
+
       return {
-        id: Math.random().toString(36).substr(2, 9),
+        id,
         file,
         name: file.name,
         type: file.type,
         status: "previewing" as const,
         progress: 0,
         previewUrl,
-        extractionOptions: getDefaultExtractionOptions(file.type),
+        extractionOptions,
       }
     })
 
     setFiles((prev) => [...prev, ...newFiles])
-  }, []) // Removed getDefaultExtractionOptions dependency
+  }
 
-  const getDefaultExtractionOptions = useCallback(
-    (fileType: string): ExtractionOptions => {
-      if (fileType.startsWith("video/")) {
-        return { audio: true, video: true, text: false, metadata: true, script: true }
-      } else if (fileType.startsWith("audio/")) {
-        return { audio: true, video: false, text: false, metadata: true, script: true }
-      } else if (fileType === "application/pdf") {
-        return { audio: false, video: false, text: true, metadata: true, script: false }
-      } else if (fileType.startsWith("image/")) {
-        return { audio: false, video: false, text: true, metadata: true, script: false }
-      }
-      return { audio: false, video: false, text: true, metadata: true, script: false }
-    },
-    [], // Stable function, no dependencies needed
-  )
-
-  const updateExtractionOptions = useCallback((fileId: string, options: ExtractionOptions) => {
+  const updateExtractionOptions = (fileId: string, options: ExtractionOptions) => {
     setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, extractionOptions: options } : f)))
-  }, [])
+  }
 
-  const startProcessing = useCallback((fileId: string) => {
-    setFiles((prev) => {
-      const file = prev.find((f) => f.id === fileId)
-      if (!file) return prev
+  const startProcessing = (fileId: string) => {
+    const file = files.find((f) => f.id === fileId)
+    if (!file) return
 
-      const updatedFiles = prev.map((f) => (f.id === fileId ? { ...f, status: "processing" as const, progress: 0 } : f))
+    setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, status: "processing" as const, progress: 0 } : f)))
 
-      setTimeout(() => {
-        if (file.file) {
-          processFile(fileId, file.file, file.extractionOptions!)
-        } else if (file.url) {
-          processUrl(file.url, fileId, file.extractionOptions!)
-        }
-      }, 0)
-
-      return updatedFiles
-    })
-  }, []) // No dependencies on files
+    setTimeout(() => {
+      if (file.file) {
+        processFile(fileId, file.file, file.extractionOptions!)
+      } else if (file.url) {
+        processUrl(file.url, fileId, file.extractionOptions!)
+      }
+    }, 100)
+  }
 
   const processUrl = async (url: string, fileId?: string, options?: ExtractionOptions) => {
     let urlId = fileId
@@ -127,19 +114,12 @@ export function MediaExtractor() {
     if (!urlId) {
       urlId = Math.random().toString(36).substr(2, 9)
 
-      // Determine URL type
       let urlType = "podcast"
       let displayName = url
 
       if (url.includes("youtube.com") || url.includes("youtu.be")) {
         urlType = "youtube"
         displayName = "YouTube Video"
-      } else if (url.includes("spotify.com")) {
-        urlType = "spotify"
-        displayName = "Spotify Podcast"
-      } else if (url.includes("apple.com/podcast")) {
-        urlType = "apple"
-        displayName = "Apple Podcast"
       }
 
       const newUrlFile: UploadedFile = {
@@ -163,9 +143,7 @@ export function MediaExtractor() {
     try {
       const response = await fetch("/api/process-url", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           url,
           type: files.find((f) => f.id === urlId)?.type || "podcast",
@@ -173,33 +151,16 @@ export function MediaExtractor() {
         }),
       })
 
-      let result
-      try {
-        result = await response.json()
-      } catch (jsonError) {
-        const textResponse = await response.text()
-        console.error("[v0] URL process response not JSON:", textResponse)
-        throw new Error(`URL processing failed: Server returned non-JSON response (${response.status})`)
-      }
+      const result = await response.json()
 
       if (!response.ok) {
-        throw new Error(result.error || `URL processing failed with status ${response.status}`)
+        throw new Error(result.error || "URL processing failed")
       }
 
       setFiles((prev) =>
-        prev.map((f) =>
-          f.id === urlId
-            ? {
-                ...f,
-                status: "completed",
-                progress: 100,
-                results: result.results,
-              }
-            : f,
-        ),
+        prev.map((f) => (f.id === urlId ? { ...f, status: "completed", progress: 100, results: result.results } : f)),
       )
     } catch (error) {
-      console.error("[v0] URL processing error:", error)
       setFiles((prev) =>
         prev.map((f) =>
           f.id === urlId
@@ -217,57 +178,20 @@ export function MediaExtractor() {
     }
   }
 
-  const processFile = async (fileId: string, file?: File, options?: ExtractionOptions) => {
-    if (!file) return
-
+  const processFile = async (fileId: string, file: File, options: ExtractionOptions) => {
     setIsProcessing(true)
 
     try {
-      const maxSize = 500 * 1024 * 1024 // 500MB limit
-      if (file.size > maxSize) {
-        throw new Error(
-          `File size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds 500MB limit. Please use a smaller file or compress your media.`,
-        )
+      if (file.size > 500 * 1024 * 1024) {
+        throw new Error(`File size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds 500MB limit`)
       }
-
-      // Upload file
-      const formData = new FormData()
-      formData.append("file", file)
-
-      const uploadResponse = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      })
-
-      let uploadResult
-      try {
-        uploadResult = await uploadResponse.json()
-      } catch (jsonError) {
-        const textResponse = await uploadResponse.text()
-        console.error("[v0] Upload response not JSON:", textResponse)
-        throw new Error(`Upload failed: Server returned non-JSON response (${uploadResponse.status})`)
-      }
-
-      if (!uploadResponse.ok) {
-        throw new Error(uploadResult.error || `Upload failed with status ${uploadResponse.status}`)
-      }
-
-      // Update progress to processing
-      setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, status: "processing", progress: 25 } : f)))
 
       const fileBuffer = await file.arrayBuffer()
-      const base64Data = await new Promise<string>((resolve) => {
-        setTimeout(() => {
-          resolve(Buffer.from(fileBuffer).toString("base64"))
-        }, 0)
-      })
+      const base64Data = Buffer.from(fileBuffer).toString("base64")
 
-      // Process with Gemini first
-      const processResponse = await fetch("/api/process", {
+      const response = await fetch("/api/process", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fileId,
           fileData: base64Data,
@@ -277,91 +201,16 @@ export function MediaExtractor() {
         }),
       })
 
-      let processResult
-      try {
-        processResult = await processResponse.json()
-      } catch (jsonError) {
-        const textResponse = await processResponse.text()
-        console.error("[v0] Process response not JSON:", textResponse)
-        throw new Error(`Processing failed: Server returned non-JSON response (${processResponse.status})`)
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || "Processing failed")
       }
 
-      if (!processResponse.ok) {
-        throw new Error(processResult.error || `Processing failed with status ${processResponse.status}`)
-      }
-      const results = processResult.results
-
-      setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, progress: 50 } : f)))
-
-      // Extract audio if requested
-      if (options?.audio && (file.type.startsWith("video/") || file.type.startsWith("audio/"))) {
-        try {
-          const audioResponse = await fetch("/api/extract-audio", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              fileId,
-              fileData: base64Data,
-              fileName: file.name,
-              fileType: file.type,
-            }),
-          })
-
-          if (audioResponse.ok) {
-            const audioResult = await audioResponse.json()
-            results.extractedAudio = audioResult.extractedAudio
-          }
-        } catch (audioError) {
-          console.error("[v0] Audio extraction failed:", audioError)
-          // Continue processing even if audio extraction fails
-        }
-      }
-
-      setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, progress: 75 } : f)))
-
-      // Extract video if requested
-      if (options?.video && file.type.startsWith("video/")) {
-        try {
-          const videoResponse = await fetch("/api/extract-video", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              fileId,
-              fileData: base64Data,
-              fileName: file.name,
-              fileType: file.type,
-            }),
-          })
-
-          if (videoResponse.ok) {
-            const videoResult = await videoResponse.json()
-            results.extractedVideo = videoResult.extractedVideo
-          }
-        } catch (videoError) {
-          console.error("[v0] Video extraction failed:", videoError)
-          // Continue processing even if video extraction fails
-        }
-      }
-
-      // Complete processing
       setFiles((prev) =>
-        prev.map((f) =>
-          f.id === fileId
-            ? {
-                ...f,
-                status: "completed",
-                progress: 100,
-                results,
-              }
-            : f,
-        ),
+        prev.map((f) => (f.id === fileId ? { ...f, status: "completed", progress: 100, results: result.results } : f)),
       )
     } catch (error) {
-      console.error("[v0] Processing error:", error)
       setFiles((prev) =>
         prev.map((f) =>
           f.id === fileId
@@ -379,16 +228,13 @@ export function MediaExtractor() {
     }
   }
 
-  const removeFile = useCallback((fileId: string) => {
-    setFiles((prev) => {
-      const file = prev.find((f) => f.id === fileId)
-      if (file?.previewUrl && !cleanupRef.current.has(fileId)) {
-        URL.revokeObjectURL(file.previewUrl)
-        cleanupRef.current.add(fileId)
-      }
-      return prev.filter((f) => f.id !== fileId)
-    })
-  }, [])
+  const removeFile = (fileId: string) => {
+    const file = files.find((f) => f.id === fileId)
+    if (file?.previewUrl) {
+      URL.revokeObjectURL(file.previewUrl)
+    }
+    setFiles((prev) => prev.filter((f) => f.id !== fileId))
+  }
 
   const getFileIcon = (item: UploadedFile) => {
     if (item.file) {
@@ -398,7 +244,7 @@ export function MediaExtractor() {
       if (item.file.type === "application/pdf") return FileText
     } else if (item.url) {
       if (item.type === "youtube") return Video
-      if (item.type === "podcast" || item.type === "spotify" || item.type === "apple") return Music
+      if (item.type === "podcast") return Music
     }
     return FileText
   }
@@ -407,10 +253,7 @@ export function MediaExtractor() {
     const options = file.extractionOptions!
 
     const toggleOption = (key: keyof ExtractionOptions) => {
-      updateExtractionOptions(file.id, {
-        ...options,
-        [key]: !options[key],
-      })
+      updateExtractionOptions(file.id, { ...options, [key]: !options[key] })
     }
 
     const getOptionLabel = (key: keyof ExtractionOptions) => {
@@ -436,20 +279,11 @@ export function MediaExtractor() {
         if (key === "text") return type === "application/pdf" || type.startsWith("image/")
         if (key === "script") return type.startsWith("video/") || type.startsWith("audio/")
         return true
-      } else if (file.url) {
-        if (key === "audio") return true
-        if (key === "video") return file.type === "youtube"
-        if (key === "text") return false
-        if (key === "script") return true
-        return true
       }
       return true
     }
 
     const hasSelectedOptions = Object.values(options).some(Boolean)
-    const availableOptionsCount = (Object.keys(options) as Array<keyof ExtractionOptions>).filter((key) =>
-      isOptionAvailable(key),
-    ).length
 
     return (
       <div className="bg-muted/50 rounded-lg p-4 space-y-3">
@@ -496,21 +330,16 @@ export function MediaExtractor() {
     )
   }
 
-  const dropzoneConfig = useMemo(
-    () => ({
-      onDrop,
-      accept: {
-        "video/*": [".mp4", ".avi", ".mov", ".mkv"],
-        "audio/*": [".mp3", ".wav", ".m4a", ".flac"],
-        "application/pdf": [".pdf"],
-        "image/*": [".jpg", ".jpeg", ".png", ".gif"],
-      },
-      multiple: true,
-    }),
-    [onDrop],
-  )
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone(dropzoneConfig)
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop: handleFileDrop,
+    accept: {
+      "video/*": [".mp4", ".avi", ".mov", ".mkv"],
+      "audio/*": [".mp3", ".wav", ".m4a", ".flac"],
+      "application/pdf": [".pdf"],
+      "image/*": [".jpg", ".jpeg", ".png", ".gif"],
+    },
+    multiple: true,
+  })
 
   return (
     <div className="space-y-8">
@@ -565,9 +394,6 @@ export function MediaExtractor() {
             >
               Cancel
             </button>
-            <div className="text-xs text-muted-foreground">
-              Supports YouTube, Spotify, Apple Podcasts, and direct audio URLs
-            </div>
           </div>
         )}
       </div>
@@ -590,11 +416,7 @@ export function MediaExtractor() {
                       <div>
                         <h4 className="font-medium">{uploadedFile.name}</h4>
                         <p className="text-sm text-muted-foreground">
-                          {uploadedFile.file
-                            ? `${(uploadedFile.file.size / 1024 / 1024).toFixed(2)} MB`
-                            : uploadedFile.url
-                              ? "URL"
-                              : "Unknown"}
+                          {uploadedFile.file ? `${(uploadedFile.file.size / 1024 / 1024).toFixed(2)} MB` : "URL"}
                         </p>
                       </div>
                     </div>
@@ -632,11 +454,9 @@ export function MediaExtractor() {
 
                   {uploadedFile.status === "previewing" && <ExtractionOptionsPanel file={uploadedFile} />}
 
-                  {uploadedFile.status !== "completed" &&
-                    uploadedFile.status !== "error" &&
-                    uploadedFile.status !== "previewing" && (
-                      <ProcessingPanel status={uploadedFile.status} progress={uploadedFile.progress} />
-                    )}
+                  {uploadedFile.status === "processing" && (
+                    <ProcessingPanel status={uploadedFile.status} progress={uploadedFile.progress} />
+                  )}
 
                   {uploadedFile.status === "completed" && uploadedFile.results && (
                     <div className="space-y-4">
