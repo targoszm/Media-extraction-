@@ -41,6 +41,95 @@ interface UploadedFile {
   previewUrl?: string
 }
 
+const ExtractionOptionsPanel = ({
+  file,
+  onUpdateOptions,
+  onStartProcessing,
+}: {
+  file: UploadedFile
+  onUpdateOptions: (fileId: string, options: ExtractionOptions) => void
+  onStartProcessing: (fileId: string) => void
+}) => {
+  const options = file.extractionOptions!
+
+  const toggleOption = (key: keyof ExtractionOptions) => {
+    onUpdateOptions(file.id, { ...options, [key]: !options[key] })
+  }
+
+  const getOptionLabel = (key: keyof ExtractionOptions) => {
+    switch (key) {
+      case "audio":
+        return "Extract Audio/Transcription"
+      case "video":
+        return "Analyze Video Content"
+      case "text":
+        return "Extract Text Content"
+      case "metadata":
+        return "Extract Metadata"
+      case "script":
+        return "Generate Script/Dialogue"
+    }
+  }
+
+  const isOptionAvailable = (key: keyof ExtractionOptions) => {
+    if (file.file) {
+      const type = file.file.type
+      if (key === "audio") return type.startsWith("video/") || type.startsWith("audio/")
+      if (key === "video") return type.startsWith("video/")
+      if (key === "text") return type === "application/pdf" || type.startsWith("image/")
+      if (key === "script") return type.startsWith("video/") || type.startsWith("audio/")
+      return true
+    }
+    return true
+  }
+
+  const hasSelectedOptions = Object.values(options).some(Boolean)
+
+  return (
+    <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+      <h5 className="font-medium text-sm">Choose what to extract:</h5>
+      <div className="grid grid-cols-2 gap-2">
+        {(Object.keys(options) as Array<keyof ExtractionOptions>).map((key) => {
+          const available = isOptionAvailable(key)
+          const checked = options[key]
+
+          return (
+            <button
+              key={key}
+              onClick={() => available && toggleOption(key)}
+              disabled={!available}
+              className={`flex items-center gap-2 p-2 rounded text-sm transition-colors ${
+                available ? "hover:bg-background cursor-pointer" : "opacity-50 cursor-not-allowed"
+              }`}
+            >
+              {checked ? <CheckSquare className="w-4 h-4 text-primary" /> : <Square className="w-4 h-4" />}
+              <span className={checked ? "text-foreground" : "text-muted-foreground"}>{getOptionLabel(key)}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {!hasSelectedOptions && (
+        <div className="text-sm text-amber-600 bg-amber-50 dark:bg-amber-900/20 p-2 rounded">
+          Please select at least one extraction option to continue
+        </div>
+      )}
+
+      <button
+        onClick={() => onStartProcessing(file.id)}
+        disabled={!hasSelectedOptions}
+        className={`w-full mt-3 px-4 py-2 rounded-lg font-medium transition-colors ${
+          hasSelectedOptions
+            ? "bg-primary text-primary-foreground hover:bg-primary/90"
+            : "bg-muted text-muted-foreground cursor-not-allowed"
+        }`}
+      >
+        {hasSelectedOptions ? "Extract Content" : "Select Options First"}
+      </button>
+    </div>
+  )
+}
+
 export function MediaExtractor() {
   const [files, setFiles] = useState<UploadedFile[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
@@ -97,18 +186,16 @@ export function MediaExtractor() {
   }
 
   const startProcessing = (fileId: string) => {
+    setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, status: "processing" as const, progress: 0 } : f)))
+
     const file = files.find((f) => f.id === fileId)
     if (!file) return
 
-    setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, status: "processing" as const, progress: 0 } : f)))
-
-    setTimeout(() => {
-      if (file.file) {
-        processFile(fileId, file.file, file.extractionOptions!)
-      } else if (file.url) {
-        processUrl(file.url, fileId, file.extractionOptions!)
-      }
-    }, 100)
+    if (file.file) {
+      processFile(fileId, file.file, file.extractionOptions!)
+    } else if (file.url) {
+      processUrl(file.url, fileId, file.extractionOptions!)
+    }
   }
 
   const processUrl = async (url: string, fileId?: string, options?: ExtractionOptions) => {
@@ -252,87 +339,6 @@ export function MediaExtractor() {
     return FileText
   }
 
-  const ExtractionOptionsPanel = ({ file }: { file: UploadedFile }) => {
-    const options = file.extractionOptions!
-
-    const toggleOption = (key: keyof ExtractionOptions) => {
-      updateExtractionOptions(file.id, { ...options, [key]: !options[key] })
-    }
-
-    const getOptionLabel = (key: keyof ExtractionOptions) => {
-      switch (key) {
-        case "audio":
-          return "Extract Audio/Transcription"
-        case "video":
-          return "Analyze Video Content"
-        case "text":
-          return "Extract Text Content"
-        case "metadata":
-          return "Extract Metadata"
-        case "script":
-          return "Generate Script/Dialogue"
-      }
-    }
-
-    const isOptionAvailable = (key: keyof ExtractionOptions) => {
-      if (file.file) {
-        const type = file.file.type
-        if (key === "audio") return type.startsWith("video/") || type.startsWith("audio/")
-        if (key === "video") return type.startsWith("video/")
-        if (key === "text") return type === "application/pdf" || type.startsWith("image/")
-        if (key === "script") return type.startsWith("video/") || type.startsWith("audio/")
-        return true
-      }
-      return true
-    }
-
-    const hasSelectedOptions = Object.values(options).some(Boolean)
-
-    return (
-      <div className="bg-muted/50 rounded-lg p-4 space-y-3">
-        <h5 className="font-medium text-sm">Choose what to extract:</h5>
-        <div className="grid grid-cols-2 gap-2">
-          {(Object.keys(options) as Array<keyof ExtractionOptions>).map((key) => {
-            const available = isOptionAvailable(key)
-            const checked = options[key]
-
-            return (
-              <button
-                key={key}
-                onClick={() => available && toggleOption(key)}
-                disabled={!available}
-                className={`flex items-center gap-2 p-2 rounded text-sm transition-colors ${
-                  available ? "hover:bg-background cursor-pointer" : "opacity-50 cursor-not-allowed"
-                }`}
-              >
-                {checked ? <CheckSquare className="w-4 h-4 text-primary" /> : <Square className="w-4 h-4" />}
-                <span className={checked ? "text-foreground" : "text-muted-foreground"}>{getOptionLabel(key)}</span>
-              </button>
-            )
-          })}
-        </div>
-
-        {!hasSelectedOptions && (
-          <div className="text-sm text-amber-600 bg-amber-50 dark:bg-amber-900/20 p-2 rounded">
-            Please select at least one extraction option to continue
-          </div>
-        )}
-
-        <button
-          onClick={() => startProcessing(file.id)}
-          disabled={!hasSelectedOptions}
-          className={`w-full mt-3 px-4 py-2 rounded-lg font-medium transition-colors ${
-            hasSelectedOptions
-              ? "bg-primary text-primary-foreground hover:bg-primary/90"
-              : "bg-muted text-muted-foreground cursor-not-allowed"
-          }`}
-        >
-          {hasSelectedOptions ? "Extract Content" : "Select Options First"}
-        </button>
-      </div>
-    )
-  }
-
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: handleFileDrop,
     accept: {
@@ -463,7 +469,13 @@ export function MediaExtractor() {
                     </div>
                   )}
 
-                  {uploadedFile.status === "previewing" && <ExtractionOptionsPanel file={uploadedFile} />}
+                  {uploadedFile.status === "previewing" && (
+                    <ExtractionOptionsPanel
+                      file={uploadedFile}
+                      onUpdateOptions={updateExtractionOptions}
+                      onStartProcessing={startProcessing}
+                    />
+                  )}
 
                   {uploadedFile.status === "processing" && (
                     <ProcessingPanel status={uploadedFile.status} progress={uploadedFile.progress} />
