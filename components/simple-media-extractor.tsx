@@ -54,73 +54,113 @@ export default function SimpleMediaExtractor() {
   }
 
   const processFile = async (file: File, type: "video" | "audio" | "text") => {
+    console.log("[v0] Processing file:", file.name, "Type:", type)
+
     // Simulate processing delay
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    await new Promise((resolve) => setTimeout(resolve, 1500))
 
     const fileUrl = URL.createObjectURL(file)
 
-    switch (type) {
-      case "video":
-        return {
-          videoUrl: fileUrl,
-          audioUrl: fileUrl, // In real implementation, extract audio
-          transcript: `[00:00] Speaker 1: This is a sample transcript from ${file.name}\n[00:15] Speaker 2: Video content has been processed successfully.\n[00:30] Speaker 1: You can now preview and download the extracted content.`,
-        }
-      case "audio":
-        return {
-          audioUrl: fileUrl,
-          transcript: `[00:00] Speaker 1: Audio transcript from ${file.name}\n[00:12] Speaker 2: Voice content extracted successfully.\n[00:25] Speaker 1: Ready for download and playback.`,
-        }
-      case "text":
-        const text = await file.text()
-        return {
-          text:
-            text ||
-            `Extracted text content from ${file.name}:\n\nThis is sample extracted text content. In a real implementation, this would contain the actual text extracted from your document using OCR or direct text extraction methods.`,
-        }
-      default:
-        return {}
+    try {
+      switch (type) {
+        case "video":
+          console.log("[v0] Processing video file")
+          return {
+            videoUrl: fileUrl,
+            audioUrl: fileUrl, // Note: Real audio extraction would require server-side processing
+            transcript: `[00:00] Speaker 1: Video analysis from ${file.name}\n[00:15] Speaker 2: Content successfully processed for preview.\n[00:30] Speaker 1: Video and audio tracks are ready for download.\n[00:45] Speaker 2: For full audio extraction, consider uploading audio separately.`,
+          }
+        case "audio":
+          console.log("[v0] Processing audio file")
+          return {
+            audioUrl: fileUrl,
+            transcript: `[00:00] Speaker 1: Audio file ${file.name} processed\n[00:12] Speaker 2: Voice content extracted and ready.\n[00:25] Speaker 1: Playback and download available.\n[00:38] Speaker 2: For speech-to-text, connect AssemblyAI API key.`,
+          }
+        case "text":
+          console.log("[v0] Processing text file")
+          let extractedText = ""
+
+          if (file.type === "application/pdf") {
+            // For PDFs, show guidance message
+            extractedText = `PDF Content from ${file.name}:\n\nThis PDF has been processed for text extraction. In a production environment, this would use PDF parsing libraries to extract the actual text content, tables, and formatting.\n\nFor full PDF text extraction, consider using PDF.js or similar libraries with OCR capabilities.`
+          } else {
+            // For text files, read actual content
+            try {
+              extractedText = await file.text()
+              if (!extractedText.trim()) {
+                extractedText = `Text file ${file.name} appears to be empty or in an unsupported format.`
+              }
+            } catch (error) {
+              console.log("[v0] Error reading text file:", error)
+              extractedText = `Error reading ${file.name}. File may be corrupted or in an unsupported format.`
+            }
+          }
+
+          return { text: extractedText }
+        default:
+          return {}
+      }
+    } catch (error) {
+      console.log("[v0] Processing error:", error)
+      return {
+        text: `Error processing ${file.name}: ${error instanceof Error ? error.message : "Unknown error"}`,
+      }
     }
   }
 
   const downloadContent = (file: ProcessedFile, contentType: "video" | "audio" | "text") => {
+    console.log("[v0] Downloading content:", contentType, "for file:", file.name)
+
     const { extractedContent } = file
-    let content = ""
-    let filename = ""
-    let mimeType = ""
 
-    switch (contentType) {
-      case "video":
-        if (extractedContent.videoUrl) {
-          const link = document.createElement("a")
-          link.href = extractedContent.videoUrl
-          link.download = `${file.name}_video.mp4`
-          link.click()
-        }
-        return
-      case "audio":
-        if (extractedContent.audioUrl) {
-          const link = document.createElement("a")
-          link.href = extractedContent.audioUrl
-          link.download = `${file.name}_audio.mp3`
-          link.click()
-        }
-        return
-      case "text":
-        content = extractedContent.text || extractedContent.transcript || ""
-        filename = `${file.name}_extracted.txt`
-        mimeType = "text/plain"
-        break
-    }
-
-    if (content) {
-      const blob = new Blob([content], { type: mimeType })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement("a")
-      link.href = url
-      link.download = filename
-      link.click()
-      URL.revokeObjectURL(url)
+    try {
+      switch (contentType) {
+        case "video":
+          if (extractedContent.videoUrl) {
+            const link = document.createElement("a")
+            link.href = extractedContent.videoUrl
+            link.download = `${file.name.split(".")[0]}_video.mp4`
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            console.log("[v0] Video download initiated")
+          } else {
+            console.log("[v0] No video URL available for download")
+          }
+          return
+        case "audio":
+          if (extractedContent.audioUrl) {
+            const link = document.createElement("a")
+            link.href = extractedContent.audioUrl
+            link.download = `${file.name.split(".")[0]}_audio.mp3`
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            console.log("[v0] Audio download initiated")
+          } else {
+            console.log("[v0] No audio URL available for download")
+          }
+          return
+        case "text":
+          const content = extractedContent.text || extractedContent.transcript || ""
+          if (content) {
+            const blob = new Blob([content], { type: "text/plain;charset=utf-8" })
+            const url = URL.createObjectURL(blob)
+            const link = document.createElement("a")
+            link.href = url
+            link.download = `${file.name.split(".")[0]}_extracted.txt`
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            URL.revokeObjectURL(url)
+            console.log("[v0] Text download initiated")
+          } else {
+            console.log("[v0] No text content available for download")
+          }
+          break
+      }
+    } catch (error) {
+      console.log("[v0] Download error:", error)
     }
   }
 
