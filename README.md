@@ -1,44 +1,30 @@
+# Generate app from image
 
-# Multimodal Structured Extraction with Gemini 2.0 Flash and Google GenAI Python SDK 1.0
+*Automatically synced with your [v0.app](https://v0.app) deployments*
 
-In this tutorial we extract structured data from a variety of sources, including an investment newsletter PDF, a podcast, and a YouTube video.
+[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/magdas-projects-72309b5a/v0-skills-studio-ai)
+[![Built with v0](https://img.shields.io/badge/Built%20with-v0.app-black?style=for-the-badge)](https://v0.app/chat/projects/pUo9t2GnwfD)
 
-## Setup
-```
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
+## Overview
 
-## Create a .env file in the root directory with your Gemini API key
-```
-GOOGLE_API_KEY=your_google_api_key
-```
+This repository will stay in sync with your deployed chats on [v0.app](https://v0.app).
+Any changes you make to your deployed app will be automatically pushed to this repository from [v0.app](https://v0.app).
 
-## Handy Commands
+## Deployment
 
-### Download YouTube video
-```
-yt-dlp https://www.youtube.com/youryoutubeurl
-```
+Your project is live at:
 
-## Download YouTube audio
-```
-yt-dlp -x --audio-format mp3 https://www.youtube.com/youryoutubeurl
-```
+**[https://vercel.com/magdas-projects-72309b5a/v0-skills-studio-ai](https://vercel.com/magdas-projects-72309b5a/v0-skills-studio-ai)**
 
-### Split audio
-```
-ffmpeg -i input.mp3 -f segment -segment_time 10 -c copy output_%03d.mp3
-```
+## Build your app
 
-### or use the shell script split_audio.sh
-```
-./split_audio.sh input.mp3
-```
+Continue building your app on:
 
-### Extract audio from video
-```
-ffmpeg -i input.mp4 -q:a 0 -map a output.mp3
-```
+**[https://v0.app/chat/projects/pUo9t2GnwfD](https://v0.app/chat/projects/pUo9t2GnwfD)**
 
+## How It Works
+
+1. Create and modify your project using [v0.app](https://v0.app)
+2. Deploy your chats from the v0 interface
+3. Changes are automatically pushed to this repository
+4. Vercel deploys the latest version from this repository
