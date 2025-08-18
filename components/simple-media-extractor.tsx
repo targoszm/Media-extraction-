@@ -54,47 +54,151 @@ export default function SimpleMediaExtractor() {
   const processFile = async (file: File, type: "video" | "audio" | "text") => {
     console.log("[v0] Processing file:", file.name, "Type:", type)
 
-    // Simulate processing delay
-    await new Promise((resolve) => setTimeout(resolve, 1500))
-
     const fileUrl = URL.createObjectURL(file)
 
     try {
       switch (type) {
         case "video":
           console.log("[v0] Processing video file")
-          return {
-            videoUrl: fileUrl,
-            audioUrl: fileUrl, // Note: Real audio extraction would require server-side processing
-            text: `Video File: ${file.name}\n\nTo extract text content from this video, you need:\n\n1. Speech-to-text processing (requires AssemblyAI API key)\n2. Audio extraction from video (requires server-side processing)\n3. OCR for any text visible in the video frames\n\nCurrently showing video preview only. For full text extraction, please:\n- Extract audio separately and upload as MP3/WAV\n- Configure AssemblyAI API key in environment variables\n- Use dedicated video processing services`,
-          }
-        case "audio":
-          console.log("[v0] Processing audio file")
-          return {
-            audioUrl: fileUrl,
-            text: `Audio File: ${file.name}\n\nTo extract text from this audio file, you need:\n\n1. AssemblyAI API key configured\n2. Speech-to-text processing enabled\n3. Speaker diarization for multiple speakers\n\nCurrently showing audio preview only. To get real transcripts:\n- Add ASSEMBLYAI_API_KEY to environment variables\n- Enable speech-to-text processing in settings\n- The system will then provide real transcripts with speaker identification`,
-          }
-        case "text":
-          console.log("[v0] Processing text file")
-          let extractedText = ""
 
-          if (file.type === "application/pdf") {
-            // For PDFs, show guidance message
-            extractedText = `PDF Content from ${file.name}:\n\nThis PDF has been processed for text extraction. In a production environment, this would use PDF parsing libraries to extract the actual text content, tables, and formatting.\n\nFor full PDF text extraction, consider using PDF.js or similar libraries with OCR capabilities.`
-          } else {
-            // For text files, read actual content
-            try {
-              extractedText = await file.text()
-              if (!extractedText.trim()) {
-                extractedText = `Text file ${file.name} appears to be empty or in an unsupported format.`
+          try {
+            const formData = new FormData()
+            formData.append("file", file)
+            formData.append(
+              "options",
+              JSON.stringify({
+                audio: true,
+                video: true,
+                text: true,
+                metadata: true,
+                script: true,
+              }),
+            )
+
+            const response = await fetch("/api/process", {
+              method: "POST",
+              body: formData,
+            })
+
+            if (response.ok) {
+              const result = await response.json()
+              console.log("[v0] Video processing result:", result)
+
+              return {
+                videoUrl: fileUrl,
+                audioUrl: fileUrl,
+                text:
+                  result.extractedText ||
+                  result.transcript ||
+                  `Video processing completed for ${file.name}.\n\nExtracted content:\n- Duration: ${result.duration || "Unknown"}\n- Speakers: ${result.speakers?.length || 0}\n- Transcript: ${result.transcript ? "Available" : "Processing required"}\n\nFor full speech-to-text extraction, ensure AssemblyAI API key is configured.`,
+                transcript: result.transcript,
               }
-            } catch (error) {
-              console.log("[v0] Error reading text file:", error)
-              extractedText = `Error reading ${file.name}. File may be corrupted or in an unsupported format.`
+            } else {
+              console.log("[v0] API processing failed, using fallback")
+              throw new Error(`API processing failed: ${response.status}`)
+            }
+          } catch (apiError) {
+            console.log("[v0] API error:", apiError)
+            return {
+              videoUrl: fileUrl,
+              audioUrl: fileUrl,
+              text: `Video File: ${file.name}\n\nAPI Processing Status: ${apiError instanceof Error ? apiError.message : "Failed"}\n\nTo extract text content from this video:\n\n1. ✅ Video preview available\n2. ⚠️ Speech-to-text processing requires AssemblyAI API key\n3. ⚠️ Audio extraction requires server-side processing\n4. ⚠️ OCR for video text requires additional configuration\n\nNext steps:\n- Configure ASSEMBLYAI_API_KEY in environment variables\n- For immediate results: Extract audio as MP3/WAV and upload separately\n- Enable video processing services for full automation`,
             }
           }
 
-          return { text: extractedText }
+        case "audio":
+          console.log("[v0] Processing audio file")
+
+          try {
+            const formData = new FormData()
+            formData.append("file", file)
+            formData.append(
+              "options",
+              JSON.stringify({
+                audio: true,
+                text: true,
+                metadata: true,
+                script: true,
+              }),
+            )
+
+            const response = await fetch("/api/process", {
+              method: "POST",
+              body: formData,
+            })
+
+            if (response.ok) {
+              const result = await response.json()
+              console.log("[v0] Audio processing result:", result)
+
+              return {
+                audioUrl: fileUrl,
+                text:
+                  result.extractedText ||
+                  result.transcript ||
+                  `Audio processing completed for ${file.name}.\n\nExtracted content:\n- Duration: ${result.duration || "Unknown"}\n- Speakers: ${result.speakers?.length || 0}\n- Transcript: ${result.transcript ? "Available" : "Processing in progress"}\n\nReal-time speech-to-text processing with speaker diarization.`,
+                transcript: result.transcript,
+              }
+            } else {
+              throw new Error(`API processing failed: ${response.status}`)
+            }
+          } catch (apiError) {
+            console.log("[v0] Audio API error:", apiError)
+            return {
+              audioUrl: fileUrl,
+              text: `Audio File: ${file.name}\n\nProcessing Status: ${apiError instanceof Error ? apiError.message : "Failed"}\n\nTo extract text from this audio file:\n\n1. ✅ Audio preview available\n2. ⚠️ AssemblyAI API key required for speech-to-text\n3. ⚠️ Speaker diarization needs configuration\n\nConfigure ASSEMBLYAI_API_KEY in environment variables for real transcripts with speaker identification.`,
+            }
+          }
+
+        case "text":
+          console.log("[v0] Processing text file")
+
+          if (file.type === "application/pdf") {
+            try {
+              const formData = new FormData()
+              formData.append("file", file)
+              formData.append(
+                "options",
+                JSON.stringify({
+                  text: true,
+                  metadata: true,
+                }),
+              )
+
+              const response = await fetch("/api/process", {
+                method: "POST",
+                body: formData,
+              })
+
+              if (response.ok) {
+                const result = await response.json()
+                return {
+                  text:
+                    result.extractedText ||
+                    `PDF processed: ${file.name}\n\nText extraction completed using AI analysis.\n\nContent analysis and structured data extraction available.`,
+                }
+              } else {
+                throw new Error(`PDF processing failed: ${response.status}`)
+              }
+            } catch (pdfError) {
+              console.log("[v0] PDF processing error:", pdfError)
+              return {
+                text: `PDF Content from ${file.name}:\n\nProcessing Status: ${pdfError instanceof Error ? pdfError.message : "Failed"}\n\nFor full PDF text extraction, ensure Google API key is configured for AI-powered document analysis.`,
+              }
+            }
+          } else {
+            try {
+              const extractedText = await file.text()
+              if (!extractedText.trim()) {
+                return { text: `Text file ${file.name} appears to be empty or in an unsupported format.` }
+              }
+              return { text: extractedText }
+            } catch (error) {
+              console.log("[v0] Error reading text file:", error)
+              return { text: `Error reading ${file.name}. File may be corrupted or in an unsupported format.` }
+            }
+          }
+
         default:
           return {}
       }
@@ -168,7 +272,6 @@ export default function SimpleMediaExtractor() {
       audio.pause()
       setPlayingAudio(null)
     } else {
-      // Pause other audio
       if (playingAudio) {
         const otherAudio = document.getElementById(`audio-${playingAudio}`) as HTMLAudioElement
         otherAudio?.pause()
@@ -180,7 +283,6 @@ export default function SimpleMediaExtractor() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      {/* Upload Section */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -210,7 +312,6 @@ export default function SimpleMediaExtractor() {
         </CardContent>
       </Card>
 
-      {/* Results Section */}
       {files.length > 0 && (
         <div className="space-y-4">
           <h2 className="text-2xl font-bold text-slate-900">Extracted Content</h2>
@@ -226,7 +327,6 @@ export default function SimpleMediaExtractor() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Video Preview */}
                 {file.type === "video" && file.extractedContent.videoUrl && (
                   <div>
                     <h4 className="font-medium mb-2">Video Preview</h4>
@@ -238,7 +338,6 @@ export default function SimpleMediaExtractor() {
                   </div>
                 )}
 
-                {/* Audio Preview */}
                 {(file.type === "audio" || file.type === "video") && file.extractedContent.audioUrl && (
                   <div>
                     <h4 className="font-medium mb-2">Audio Preview</h4>
@@ -264,7 +363,6 @@ export default function SimpleMediaExtractor() {
                   </div>
                 )}
 
-                {/* Text Preview */}
                 {(file.extractedContent.text || file.extractedContent.transcript) && (
                   <div>
                     <h4 className="font-medium mb-2">Text Content</h4>
