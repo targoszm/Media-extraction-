@@ -2,9 +2,29 @@
 
 import { useState, useCallback } from "react"
 import { useDropzone } from "react-dropzone"
-import { Upload, FileText, Video, Music, ImageIcon, X, Download, Eye, Link, Play } from "lucide-react"
+import {
+  Upload,
+  FileText,
+  Video,
+  Music,
+  ImageIcon,
+  X,
+  Download,
+  Eye,
+  Link,
+  Play,
+  CheckSquare,
+  Square,
+} from "lucide-react"
 import { ProcessingPanel } from "./processing-panel"
 import { ResultsDisplay } from "./results-display"
+
+interface ExtractionOptions {
+  audio: boolean
+  video: boolean
+  text: boolean
+  metadata: boolean
+}
 
 interface UploadedFile {
   id: string
@@ -12,10 +32,12 @@ interface UploadedFile {
   url?: string
   name: string
   type: string
-  status: "uploading" | "processing" | "completed" | "error"
+  status: "uploaded" | "previewing" | "processing" | "completed" | "error"
   progress: number
   results?: any
   error?: string
+  extractionOptions?: ExtractionOptions
+  previewUrl?: string
 }
 
 export function MediaExtractor() {
@@ -25,57 +47,98 @@ export function MediaExtractor() {
   const [showUrlInput, setShowUrlInput] = useState(false)
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    const newFiles = acceptedFiles.map((file) => ({
-      id: Math.random().toString(36).substr(2, 9),
-      file,
-      name: file.name,
-      type: file.type,
-      status: "uploading" as const,
-      progress: 0,
-    }))
+    const newFiles = acceptedFiles.map((file) => {
+      // Create preview URL for supported file types
+      let previewUrl = ""
+      if (file.type.startsWith("image/") || file.type.startsWith("video/")) {
+        previewUrl = URL.createObjectURL(file)
+      }
+
+      return {
+        id: Math.random().toString(36).substr(2, 9),
+        file,
+        name: file.name,
+        type: file.type,
+        status: "previewing" as const,
+        progress: 0,
+        previewUrl,
+        extractionOptions: getDefaultExtractionOptions(file.type),
+      }
+    })
 
     setFiles((prev) => [...prev, ...newFiles])
-
-    // Process each file with real API calls
-    newFiles.forEach((uploadedFile) => {
-      processFile(uploadedFile.id, uploadedFile.file)
-    })
   }, [])
 
-  const processUrl = async (url: string) => {
-    const urlId = Math.random().toString(36).substr(2, 9)
+  const getDefaultExtractionOptions = (fileType: string): ExtractionOptions => {
+    if (fileType.startsWith("video/")) {
+      return { audio: true, video: true, text: false, metadata: true }
+    } else if (fileType.startsWith("audio/")) {
+      return { audio: true, video: false, text: false, metadata: true }
+    } else if (fileType === "application/pdf") {
+      return { audio: false, video: false, text: true, metadata: true }
+    } else if (fileType.startsWith("image/")) {
+      return { audio: false, video: false, text: true, metadata: true }
+    }
+    return { audio: false, video: false, text: true, metadata: true }
+  }
 
-    // Determine URL type
-    let urlType = "podcast"
-    let displayName = url
+  const updateExtractionOptions = (fileId: string, options: ExtractionOptions) => {
+    setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, extractionOptions: options } : f)))
+  }
 
-    if (url.includes("youtube.com") || url.includes("youtu.be")) {
-      urlType = "youtube"
-      displayName = "YouTube Video"
-    } else if (url.includes("spotify.com")) {
-      urlType = "spotify"
-      displayName = "Spotify Podcast"
-    } else if (url.includes("apple.com/podcast")) {
-      urlType = "apple"
-      displayName = "Apple Podcast"
+  const startProcessing = (fileId: string) => {
+    const file = files.find((f) => f.id === fileId)
+    if (!file) return
+
+    setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, status: "processing", progress: 0 } : f)))
+
+    if (file.file) {
+      processFile(fileId, file.file, file.extractionOptions!)
+    } else if (file.url) {
+      processUrl(file.url, fileId, file.extractionOptions!)
+    }
+  }
+
+  const processUrl = async (url: string, fileId?: string, options?: ExtractionOptions) => {
+    let urlId = fileId
+
+    if (!urlId) {
+      urlId = Math.random().toString(36).substr(2, 9)
+
+      // Determine URL type
+      let urlType = "podcast"
+      let displayName = url
+
+      if (url.includes("youtube.com") || url.includes("youtu.be")) {
+        urlType = "youtube"
+        displayName = "YouTube Video"
+      } else if (url.includes("spotify.com")) {
+        urlType = "spotify"
+        displayName = "Spotify Podcast"
+      } else if (url.includes("apple.com/podcast")) {
+        urlType = "apple"
+        displayName = "Apple Podcast"
+      }
+
+      const newUrlFile: UploadedFile = {
+        id: urlId,
+        url,
+        name: displayName,
+        type: urlType,
+        status: "previewing",
+        progress: 0,
+        extractionOptions: { audio: true, video: urlType === "youtube", text: false, metadata: true },
+      }
+
+      setFiles((prev) => [...prev, newUrlFile])
+      setUrlInput("")
+      setShowUrlInput(false)
+      return
     }
 
-    const newUrlFile: UploadedFile = {
-      id: urlId,
-      url,
-      name: displayName,
-      type: urlType,
-      status: "processing",
-      progress: 0,
-    }
-
-    setFiles((prev) => [...prev, newUrlFile])
-    setUrlInput("")
-    setShowUrlInput(false)
     setIsProcessing(true)
 
     try {
-      // Process URL with API
       const response = await fetch("/api/process-url", {
         method: "POST",
         headers: {
@@ -83,7 +146,8 @@ export function MediaExtractor() {
         },
         body: JSON.stringify({
           url,
-          type: urlType,
+          type: files.find((f) => f.id === urlId)?.type || "podcast",
+          extractionOptions: options,
         }),
       })
 
@@ -135,7 +199,7 @@ export function MediaExtractor() {
     multiple: true,
   })
 
-  const processFile = async (fileId: string, file?: File) => {
+  const processFile = async (fileId: string, file?: File, options?: ExtractionOptions) => {
     if (!file) return
 
     setIsProcessing(true)
@@ -172,6 +236,7 @@ export function MediaExtractor() {
           fileData: base64Data,
           fileName: file.name,
           fileType: file.type,
+          extractionOptions: options,
         }),
       })
 
@@ -214,6 +279,11 @@ export function MediaExtractor() {
   }
 
   const removeFile = (fileId: string) => {
+    // Clean up preview URL if it exists
+    const file = files.find((f) => f.id === fileId)
+    if (file?.previewUrl) {
+      URL.revokeObjectURL(file.previewUrl)
+    }
     setFiles((prev) => prev.filter((f) => f.id !== fileId))
   }
 
@@ -228,6 +298,79 @@ export function MediaExtractor() {
       if (item.type === "podcast" || item.type === "spotify" || item.type === "apple") return Music
     }
     return FileText
+  }
+
+  const ExtractionOptionsPanel = ({ file }: { file: UploadedFile }) => {
+    const options = file.extractionOptions!
+
+    const toggleOption = (key: keyof ExtractionOptions) => {
+      updateExtractionOptions(file.id, {
+        ...options,
+        [key]: !options[key],
+      })
+    }
+
+    const getOptionLabel = (key: keyof ExtractionOptions) => {
+      switch (key) {
+        case "audio":
+          return "Extract Audio/Transcription"
+        case "video":
+          return "Analyze Video Content"
+        case "text":
+          return "Extract Text Content"
+        case "metadata":
+          return "Extract Metadata"
+      }
+    }
+
+    const isOptionAvailable = (key: keyof ExtractionOptions) => {
+      if (file.file) {
+        const type = file.file.type
+        if (key === "audio") return type.startsWith("video/") || type.startsWith("audio/")
+        if (key === "video") return type.startsWith("video/")
+        if (key === "text") return type === "application/pdf" || type.startsWith("image/")
+        return true
+      } else if (file.url) {
+        if (key === "audio") return true
+        if (key === "video") return file.type === "youtube"
+        if (key === "text") return false
+        return true
+      }
+      return true
+    }
+
+    return (
+      <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+        <h5 className="font-medium text-sm">Choose what to extract:</h5>
+        <div className="grid grid-cols-2 gap-2">
+          {(Object.keys(options) as Array<keyof ExtractionOptions>).map((key) => {
+            const available = isOptionAvailable(key)
+            const checked = options[key]
+
+            return (
+              <button
+                key={key}
+                onClick={() => available && toggleOption(key)}
+                disabled={!available}
+                className={`flex items-center gap-2 p-2 rounded text-sm transition-colors ${
+                  available ? "hover:bg-background cursor-pointer" : "opacity-50 cursor-not-allowed"
+                }`}
+              >
+                {checked ? <CheckSquare className="w-4 h-4 text-primary" /> : <Square className="w-4 h-4" />}
+                <span className={checked ? "text-foreground" : "text-muted-foreground"}>{getOptionLabel(key)}</span>
+              </button>
+            )
+          })}
+        </div>
+        <button
+          onClick={() => startProcessing(file.id)}
+          disabled={!Object.values(options).some(Boolean)}
+          className="action-button w-full mt-3"
+        >
+          Start Processing
+        </button>
+      </div>
+    )
   }
 
   return (
@@ -293,7 +436,7 @@ export function MediaExtractor() {
       {/* Uploaded Files */}
       {files.length > 0 && (
         <div className="space-y-4">
-          <h3 className="text-lg font-semibold">Processing Files</h3>
+          <h3 className="text-lg font-semibold">Files</h3>
           <div className="grid gap-4">
             {files.map((uploadedFile) => {
               const FileIcon = getFileIcon(uploadedFile)
@@ -324,15 +467,37 @@ export function MediaExtractor() {
                     </button>
                   </div>
 
+                  {uploadedFile.previewUrl && (
+                    <div className="mb-4">
+                      {uploadedFile.file?.type.startsWith("image/") ? (
+                        <img
+                          src={uploadedFile.previewUrl || "/placeholder.svg"}
+                          alt={uploadedFile.name}
+                          className="max-w-full h-32 object-cover rounded-lg"
+                        />
+                      ) : uploadedFile.file?.type.startsWith("video/") ? (
+                        <video
+                          src={uploadedFile.previewUrl}
+                          className="max-w-full h-32 object-cover rounded-lg"
+                          controls
+                        />
+                      ) : null}
+                    </div>
+                  )}
+
                   {uploadedFile.status === "error" && (
                     <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
                       <p className="text-sm text-destructive">Error: {uploadedFile.error}</p>
                     </div>
                   )}
 
-                  {uploadedFile.status !== "completed" && uploadedFile.status !== "error" && (
-                    <ProcessingPanel status={uploadedFile.status} progress={uploadedFile.progress} />
-                  )}
+                  {uploadedFile.status === "previewing" && <ExtractionOptionsPanel file={uploadedFile} />}
+
+                  {uploadedFile.status !== "completed" &&
+                    uploadedFile.status !== "error" &&
+                    uploadedFile.status !== "previewing" && (
+                      <ProcessingPanel status={uploadedFile.status} progress={uploadedFile.progress} />
+                    )}
 
                   {uploadedFile.status === "completed" && uploadedFile.results && (
                     <div className="space-y-4">
