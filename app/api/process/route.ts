@@ -22,9 +22,9 @@ async function processAudioWithSpeechToText(audioBuffer: Buffer, isVideo = false
       throw new Error("Audio buffer is empty")
     }
 
-    if (audioBuffer.length > 100 * 1024 * 1024) {
-      // 100MB limit
-      throw new Error("Audio file too large for processing")
+    if (audioBuffer.length > 5 * 1024 * 1024 * 1024) {
+      // 5GB limit (AssemblyAI's actual limit)
+      throw new Error("Audio file too large for processing (maximum 5GB supported)")
     }
 
     const uploadResponse = await assemblyAI.files.upload(audioBuffer)
