@@ -10,11 +10,40 @@ export async function POST(request: NextRequest) {
 
     console.log("[v0] Processing URL:", url)
 
+    if (url.includes("youtube.com") || url.includes("youtu.be")) {
+      // Extract YouTube video ID
+      const videoIdMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\n?#]+)/)
+      const videoId = videoIdMatch?.[1]
+
+      if (videoId) {
+        const results = {
+          transcript:
+            "YouTube video detected. For full transcript extraction, please use YouTube's transcript feature or download the audio file.",
+          summary: `YouTube video: ${videoId}. Direct YouTube processing requires specialized API access.`,
+          keyPoints: [
+            "YouTube video identified",
+            "Video ID: " + videoId,
+            "Consider using YouTube transcript feature",
+            "Or download audio for processing",
+          ],
+          speakers: [],
+          metadata: {
+            platform: "YouTube",
+            videoId,
+            originalUrl: url,
+            extractedAt: new Date().toISOString(),
+          },
+        }
+
+        console.log("[v0] YouTube video processed")
+        return NextResponse.json({ success: true, results })
+      }
+    }
+
     try {
-      // Fetch the actual URL content
       let response = await fetch(url, {
         method: "GET",
-        redirect: "follow", // Explicitly follow redirects
+        redirect: "follow",
         headers: {
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
@@ -30,28 +59,27 @@ export async function POST(request: NextRequest) {
       console.log("[v0] Response status:", response.status)
       console.log("[v0] Final URL after redirects:", response.url)
 
-      if (response.status === 302 || response.status === 301) {
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
         const location = response.headers.get("location")
         console.log("[v0] Redirect location:", location)
 
         if (location) {
-          // Follow the redirect manually if needed
+          // For 303 redirects, always use GET method
+          const redirectMethod = response.status === 303 ? "GET" : "GET"
+
           response = await fetch(location, {
+            method: redirectMethod,
             headers: {
               "User-Agent":
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
             },
           })
 
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-          }
-
-          // Use the redirected response
+          console.log("[v0] Redirect response status:", response.status)
         }
       }
 
-      if (!response.ok) {
+      if (!response.ok && ![301, 302, 303, 307, 308].includes(response.status)) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
 
@@ -137,14 +165,20 @@ export async function POST(request: NextRequest) {
     } catch (fetchError) {
       console.error("[v0] URL fetch error:", fetchError)
 
+      const errorMessage = fetchError.message || "Unknown error"
       const results = {
-        transcript: `Unable to directly access URL: ${url}. This may be due to CORS restrictions or the content requiring authentication.`,
-        summary: "URL processing failed - content may be protected or require special access.",
-        keyPoints: ["URL access restricted", "May require authentication", "Consider downloading content manually"],
+        transcript: `Unable to access URL: ${url}. Error: ${errorMessage}. This may be due to CORS restrictions, authentication requirements, or the content being protected.`,
+        summary: "URL processing failed - content may be protected, require authentication, or use complex redirects.",
+        keyPoints: [
+          "URL access failed",
+          "Error: " + errorMessage,
+          "May require authentication or special access",
+          "Consider downloading content manually if possible",
+        ],
         speakers: [],
         metadata: {
           url,
-          error: fetchError.message,
+          error: errorMessage,
           extractedAt: new Date().toISOString(),
         },
       }
