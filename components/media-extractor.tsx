@@ -344,6 +344,11 @@ export function MediaExtractor() {
       return true
     }
 
+    const hasSelectedOptions = Object.values(options).some(Boolean)
+    const availableOptionsCount = (Object.keys(options) as Array<keyof ExtractionOptions>).filter((key) =>
+      isOptionAvailable(key),
+    ).length
+
     return (
       <div className="bg-muted/50 rounded-lg p-4 space-y-3">
         <h5 className="font-medium text-sm">Choose what to extract:</h5>
@@ -367,12 +372,23 @@ export function MediaExtractor() {
             )
           })}
         </div>
+
+        {!hasSelectedOptions && (
+          <div className="text-sm text-amber-600 bg-amber-50 dark:bg-amber-900/20 p-2 rounded">
+            Please select at least one extraction option to continue
+          </div>
+        )}
+
         <button
           onClick={() => startProcessing(file.id)}
-          disabled={!Object.values(options).some(Boolean)}
-          className="action-button w-full mt-3"
+          disabled={!hasSelectedOptions}
+          className={`w-full mt-3 px-4 py-2 rounded-lg font-medium transition-colors ${
+            hasSelectedOptions
+              ? "bg-primary text-primary-foreground hover:bg-primary/90"
+              : "bg-muted text-muted-foreground cursor-not-allowed"
+          }`}
         >
-          Start Processing
+          {hasSelectedOptions ? "Extract Content" : "Select Options First"}
         </button>
       </div>
     )
