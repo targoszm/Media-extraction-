@@ -1,27 +1,25 @@
-import { FileText, Clock, Users, Zap } from "lucide-react"
-
 export function StatsOverview() {
   const stats = [
     {
-      icon: FileText,
+      icon: "📄",
       value: "10K+",
       label: "Files Processed",
       color: "text-primary",
     },
     {
-      icon: Clock,
+      icon: "⏱️",
       value: "< 30s",
       label: "Average Processing",
       color: "text-secondary",
     },
     {
-      icon: Users,
+      icon: "👥",
       value: "95%",
       label: "Accuracy Rate",
       color: "text-green-600",
     },
     {
-      icon: Zap,
+      icon: "⚡",
       value: "24/7",
       label: "AI Processing",
       color: "text-primary",
@@ -32,7 +30,7 @@ export function StatsOverview() {
     <div className="extraction-stats">
       {stats.map((stat, index) => (
         <div key={index} className="stat-card">
-          <stat.icon className={`w-8 h-8 ${stat.color} mx-auto mb-3`} />
+          <div className={`text-2xl ${stat.color} mx-auto mb-3`}>{stat.icon}</div>
           <div className="stat-value">{stat.value}</div>
           <div className="stat-label">{stat.label}</div>
         </div>
