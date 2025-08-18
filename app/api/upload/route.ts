@@ -2,6 +2,18 @@ import { type NextRequest, NextResponse } from "next/server"
 
 export async function POST(request: NextRequest) {
   try {
+    const contentLength = request.headers.get("content-length")
+    const maxSize = 50 * 1024 * 1024 // 50MB
+
+    if (contentLength && Number.parseInt(contentLength) > maxSize) {
+      return NextResponse.json(
+        {
+          error: `File too large. Maximum size is ${maxSize / 1024 / 1024}MB`,
+        },
+        { status: 413 },
+      )
+    }
+
     const formData = await request.formData()
     const file = formData.get("file") as File
 
@@ -9,11 +21,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 })
     }
 
-    // Convert file to buffer for processing
+    if (file.size > maxSize) {
+      return NextResponse.json(
+        {
+          error: `File size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds ${maxSize / 1024 / 1024}MB limit`,
+        },
+        { status: 413 },
+      )
+    }
+
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
 
-    // Store file info for processing
+    console.log("[v0] File uploaded:", file.name, file.type, `${(file.size / 1024 / 1024).toFixed(2)}MB`)
+
     const fileInfo = {
       id: Math.random().toString(36).substr(2, 9),
       name: file.name,
@@ -29,7 +50,12 @@ export async function POST(request: NextRequest) {
       message: "File uploaded successfully",
     })
   } catch (error) {
-    console.error("Upload error:", error)
-    return NextResponse.json({ error: "Upload failed" }, { status: 500 })
+    console.error("[v0] Upload error:", error)
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Upload failed",
+      },
+      { status: 500 },
+    )
   }
 }

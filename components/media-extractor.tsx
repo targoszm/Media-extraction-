@@ -152,10 +152,17 @@ export function MediaExtractor() {
         }),
       })
 
-      const result = await response.json()
+      let result
+      try {
+        result = await response.json()
+      } catch (jsonError) {
+        const textResponse = await response.text()
+        console.error("[v0] URL process response not JSON:", textResponse)
+        throw new Error(`URL processing failed: Server returned non-JSON response (${response.status})`)
+      }
 
       if (!response.ok) {
-        throw new Error(result.error || "URL processing failed")
+        throw new Error(result.error || `URL processing failed with status ${response.status}`)
       }
 
       setFiles((prev) =>
@@ -171,7 +178,7 @@ export function MediaExtractor() {
         ),
       )
     } catch (error) {
-      console.error("URL processing error:", error)
+      console.error("[v0] URL processing error:", error)
       setFiles((prev) =>
         prev.map((f) =>
           f.id === urlId
@@ -189,23 +196,17 @@ export function MediaExtractor() {
     }
   }
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      "video/*": [".mp4", ".avi", ".mov", ".mkv"],
-      "audio/*": [".mp3", ".wav", ".m4a", ".flac"],
-      "application/pdf": [".pdf"],
-      "image/*": [".jpg", ".jpeg", ".png", ".gif"],
-    },
-    multiple: true,
-  })
-
   const processFile = async (fileId: string, file?: File, options?: ExtractionOptions) => {
     if (!file) return
 
     setIsProcessing(true)
 
     try {
+      const maxSize = 50 * 1024 * 1024 // 50MB limit
+      if (file.size > maxSize) {
+        throw new Error(`File size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds 50MB limit`)
+      }
+
       // Upload file
       const formData = new FormData()
       formData.append("file", file)
@@ -215,8 +216,17 @@ export function MediaExtractor() {
         body: formData,
       })
 
+      let uploadResult
+      try {
+        uploadResult = await uploadResponse.json()
+      } catch (jsonError) {
+        const textResponse = await uploadResponse.text()
+        console.error("[v0] Upload response not JSON:", textResponse)
+        throw new Error(`Upload failed: Server returned non-JSON response (${uploadResponse.status})`)
+      }
+
       if (!uploadResponse.ok) {
-        throw new Error("Upload failed")
+        throw new Error(uploadResult.error || `Upload failed with status ${uploadResponse.status}`)
       }
 
       // Update progress to processing
@@ -241,9 +251,17 @@ export function MediaExtractor() {
         }),
       })
 
-      const processResult = await processResponse.json()
+      let processResult
+      try {
+        processResult = await processResponse.json()
+      } catch (jsonError) {
+        const textResponse = await processResponse.text()
+        console.error("[v0] Process response not JSON:", textResponse)
+        throw new Error(`Processing failed: Server returned non-JSON response (${processResponse.status})`)
+      }
+
       if (!processResponse.ok) {
-        throw new Error(processResult.error || "Processing failed")
+        throw new Error(processResult.error || `Processing failed with status ${processResponse.status}`)
       }
       const results = processResult.results
 
@@ -251,22 +269,27 @@ export function MediaExtractor() {
 
       // Extract audio if requested
       if (options?.audio && (file.type.startsWith("video/") || file.type.startsWith("audio/"))) {
-        const audioResponse = await fetch("/api/extract-audio", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            fileId,
-            fileData: base64Data,
-            fileName: file.name,
-            fileType: file.type,
-          }),
-        })
+        try {
+          const audioResponse = await fetch("/api/extract-audio", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              fileId,
+              fileData: base64Data,
+              fileName: file.name,
+              fileType: file.type,
+            }),
+          })
 
-        if (audioResponse.ok) {
-          const audioResult = await audioResponse.json()
-          results.extractedAudio = audioResult.extractedAudio
+          if (audioResponse.ok) {
+            const audioResult = await audioResponse.json()
+            results.extractedAudio = audioResult.extractedAudio
+          }
+        } catch (audioError) {
+          console.error("[v0] Audio extraction failed:", audioError)
+          // Continue processing even if audio extraction fails
         }
       }
 
@@ -274,22 +297,27 @@ export function MediaExtractor() {
 
       // Extract video if requested
       if (options?.video && file.type.startsWith("video/")) {
-        const videoResponse = await fetch("/api/extract-video", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            fileId,
-            fileData: base64Data,
-            fileName: file.name,
-            fileType: file.type,
-          }),
-        })
+        try {
+          const videoResponse = await fetch("/api/extract-video", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              fileId,
+              fileData: base64Data,
+              fileName: file.name,
+              fileType: file.type,
+            }),
+          })
 
-        if (videoResponse.ok) {
-          const videoResult = await videoResponse.json()
-          results.extractedVideo = videoResult.extractedVideo
+          if (videoResponse.ok) {
+            const videoResult = await videoResponse.json()
+            results.extractedVideo = videoResult.extractedVideo
+          }
+        } catch (videoError) {
+          console.error("[v0] Video extraction failed:", videoError)
+          // Continue processing even if video extraction fails
         }
       }
 
@@ -307,7 +335,7 @@ export function MediaExtractor() {
         ),
       )
     } catch (error) {
-      console.error("Processing error:", error)
+      console.error("[v0] Processing error:", error)
       setFiles((prev) =>
         prev.map((f) =>
           f.id === fileId
@@ -439,6 +467,17 @@ export function MediaExtractor() {
       </div>
     )
   }
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      "video/*": [".mp4", ".avi", ".mov", ".mkv"],
+      "audio/*": [".mp3", ".wav", ".m4a", ".flac"],
+      "application/pdf": [".pdf"],
+      "image/*": [".jpg", ".jpeg", ".png", ".gif"],
+    },
+    multiple: true,
+  })
 
   return (
     <div className="space-y-8">
