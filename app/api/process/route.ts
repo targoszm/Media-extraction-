@@ -11,18 +11,19 @@ const assemblyAI = new AssemblyAI({
 async function processAudioWithSpeechToText(audioBuffer: Buffer, isVideo = false): Promise<any> {
   try {
     if (!process.env.ASSEMBLYAI_API_KEY) {
+      console.log("[v0] AssemblyAI API key not configured")
       throw new Error("AssemblyAI API key not configured")
     }
 
     console.log("[v0] Processing audio with AssemblyAI...")
+    console.log("[v0] Audio buffer size:", audioBuffer.length)
 
-    // Convert buffer to base64 for AssemblyAI upload
-    const audioBase64 = audioBuffer.toString("base64")
-    const audioDataUrl = `data:audio/wav;base64,${audioBase64}`
+    const uploadResponse = await assemblyAI.files.upload(audioBuffer)
+    console.log("[v0] File uploaded to AssemblyAI:", uploadResponse.upload_url)
 
-    // Upload and transcribe with AssemblyAI
+    // Transcribe using the uploaded file URL
     const transcript = await assemblyAI.transcripts.transcribe({
-      audio: audioDataUrl,
+      audio: uploadResponse.upload_url,
       speaker_labels: true, // Enable speaker diarization
       auto_highlights: true,
       sentiment_analysis: true,
@@ -31,8 +32,27 @@ async function processAudioWithSpeechToText(audioBuffer: Buffer, isVideo = false
       format_text: true,
     })
 
+    console.log("[v0] Transcription status:", transcript.status)
+
     if (transcript.status === "error") {
+      console.error("[v0] AssemblyAI transcription failed:", transcript.error)
       throw new Error(`AssemblyAI transcription failed: ${transcript.error}`)
+    }
+
+    if (transcript.status === "queued" || transcript.status === "processing") {
+      console.log("[v0] Waiting for transcription to complete...")
+      // In a real implementation, you'd poll for completion
+      // For now, return a processing status
+      return {
+        transcript: "Transcription is being processed. Please check back in a few moments.",
+        duration: "Processing...",
+        speakers: [],
+        keyPoints: ["Transcription in progress"],
+        sentiment: "Processing",
+        topics: [],
+        confidence: 0,
+        status: "processing",
+      }
     }
 
     // Process AssemblyAI results
@@ -102,8 +122,17 @@ async function processAudioWithSpeechToText(audioBuffer: Buffer, isVideo = false
       confidence: transcript.confidence || 0.9,
     }
   } catch (error) {
-    console.error("AssemblyAI processing error:", error)
-    throw new Error(`Speech processing failed: ${(error as Error).message}`)
+    console.error("[v0] AssemblyAI processing error:", error)
+    return {
+      transcript: `Audio processing failed: ${(error as Error).message}. Please check that your AssemblyAI API key is configured correctly.`,
+      duration: "Unknown",
+      speakers: [],
+      keyPoints: ["Audio processing error"],
+      sentiment: "Unknown",
+      topics: [],
+      confidence: 0,
+      error: (error as Error).message,
+    }
   }
 }
 
@@ -152,7 +181,10 @@ export async function POST(request: NextRequest) {
   try {
     const { fileId, fileData, fileName, fileType } = await request.json()
 
+    console.log("[v0] Processing file:", fileName, "Type:", fileType)
+
     if (!process.env.GOOGLE_API_KEY) {
+      console.log("[v0] Google API key not configured")
       return NextResponse.json(
         {
           error: "Google API key not configured. Please add GOOGLE_API_KEY to your environment variables.",
@@ -162,6 +194,7 @@ export async function POST(request: NextRequest) {
     }
 
     if ((fileType.startsWith("audio/") || fileType.startsWith("video/")) && !process.env.ASSEMBLYAI_API_KEY) {
+      console.log("[v0] AssemblyAI API key not configured")
       return NextResponse.json(
         {
           error:
@@ -310,6 +343,7 @@ export async function POST(request: NextRequest) {
             timestamp: new Date().toISOString(),
             processingTime: "Real processing time varies",
             confidence: speechResults.confidence,
+            status: speechResults.status,
           }
         }
       } catch (error) {
@@ -350,7 +384,7 @@ export async function POST(request: NextRequest) {
       results,
     })
   } catch (error) {
-    console.error("Processing error:", error)
+    console.error("[v0] Processing error:", error)
     return NextResponse.json(
       {
         error: "Processing failed: " + (error as Error).message,
