@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useMemo, useEffect } from "react"
 import { useDropzone } from "react-dropzone"
 import {
   Upload,
@@ -47,11 +47,20 @@ export function MediaExtractor() {
   const [urlInput, setUrlInput] = useState("")
   const [showUrlInput, setShowUrlInput] = useState(false)
 
+  useEffect(() => {
+    return () => {
+      files.forEach((file) => {
+        if (file.previewUrl) {
+          URL.revokeObjectURL(file.previewUrl)
+        }
+      })
+    }
+  }, [])
+
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map((file) => {
-      // Create preview URL for supported file types
       let previewUrl = ""
-      if (file.type.startsWith("image/") || file.type.startsWith("video/")) {
+      if ((file.type.startsWith("image/") || file.type.startsWith("video/")) && file.size < 50 * 1024 * 1024) {
         previewUrl = URL.createObjectURL(file)
       }
 
@@ -70,35 +79,44 @@ export function MediaExtractor() {
     setFiles((prev) => [...prev, ...newFiles])
   }, [])
 
-  const getDefaultExtractionOptions = (fileType: string): ExtractionOptions => {
-    if (fileType.startsWith("video/")) {
-      return { audio: true, video: true, text: false, metadata: true, script: true }
-    } else if (fileType.startsWith("audio/")) {
-      return { audio: true, video: false, text: false, metadata: true, script: true }
-    } else if (fileType === "application/pdf") {
-      return { audio: false, video: false, text: true, metadata: true, script: false }
-    } else if (fileType.startsWith("image/")) {
-      return { audio: false, video: false, text: true, metadata: true, script: false }
-    }
-    return { audio: false, video: false, text: true, metadata: true, script: false }
-  }
+  const getDefaultExtractionOptions = useMemo(
+    () =>
+      (fileType: string): ExtractionOptions => {
+        if (fileType.startsWith("video/")) {
+          return { audio: true, video: true, text: false, metadata: true, script: true }
+        } else if (fileType.startsWith("audio/")) {
+          return { audio: true, video: false, text: false, metadata: true, script: true }
+        } else if (fileType === "application/pdf") {
+          return { audio: false, video: false, text: true, metadata: true, script: false }
+        } else if (fileType.startsWith("image/")) {
+          return { audio: false, video: false, text: true, metadata: true, script: false }
+        }
+        return { audio: false, video: false, text: true, metadata: true, script: false }
+      },
+    [],
+  )
 
-  const updateExtractionOptions = (fileId: string, options: ExtractionOptions) => {
+  const updateExtractionOptions = useCallback((fileId: string, options: ExtractionOptions) => {
     setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, extractionOptions: options } : f)))
-  }
+  }, [])
 
-  const startProcessing = (fileId: string) => {
-    const file = files.find((f) => f.id === fileId)
-    if (!file) return
+  const startProcessing = useCallback(
+    (fileId: string) => {
+      const file = files.find((f) => f.id === fileId)
+      if (!file) return
 
-    setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, status: "processing", progress: 0 } : f)))
+      setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, status: "processing", progress: 0 } : f)))
 
-    if (file.file) {
-      processFile(fileId, file.file, file.extractionOptions!)
-    } else if (file.url) {
-      processUrl(file.url, fileId, file.extractionOptions!)
-    }
-  }
+      setTimeout(() => {
+        if (file.file) {
+          processFile(fileId, file.file, file.extractionOptions!)
+        } else if (file.url) {
+          processUrl(file.url, fileId, file.extractionOptions!)
+        }
+      }, 0)
+    },
+    [files],
+  )
 
   const processUrl = async (url: string, fileId?: string, options?: ExtractionOptions) => {
     let urlId = fileId
@@ -234,9 +252,12 @@ export function MediaExtractor() {
       // Update progress to processing
       setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, status: "processing", progress: 25 } : f)))
 
-      // Convert file to base64 for processing
       const fileBuffer = await file.arrayBuffer()
-      const base64Data = Buffer.from(fileBuffer).toString("base64")
+      const base64Data = await new Promise<string>((resolve) => {
+        setTimeout(() => {
+          resolve(Buffer.from(fileBuffer).toString("base64"))
+        }, 0)
+      })
 
       // Process with Gemini first
       const processResponse = await fetch("/api/process", {
@@ -355,14 +376,16 @@ export function MediaExtractor() {
     }
   }
 
-  const removeFile = (fileId: string) => {
-    // Clean up preview URL if it exists
-    const file = files.find((f) => f.id === fileId)
-    if (file?.previewUrl) {
-      URL.revokeObjectURL(file.previewUrl)
-    }
-    setFiles((prev) => prev.filter((f) => f.id !== fileId))
-  }
+  const removeFile = useCallback(
+    (fileId: string) => {
+      const file = files.find((f) => f.id === fileId)
+      if (file?.previewUrl) {
+        URL.revokeObjectURL(file.previewUrl)
+      }
+      setFiles((prev) => prev.filter((f) => f.id !== fileId))
+    },
+    [files],
+  )
 
   const getFileIcon = (item: UploadedFile) => {
     if (item.file) {
@@ -470,16 +493,21 @@ export function MediaExtractor() {
     )
   }
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      "video/*": [".mp4", ".avi", ".mov", ".mkv"],
-      "audio/*": [".mp3", ".wav", ".m4a", ".flac"],
-      "application/pdf": [".pdf"],
-      "image/*": [".jpg", ".jpeg", ".png", ".gif"],
-    },
-    multiple: true,
-  })
+  const dropzoneConfig = useMemo(
+    () => ({
+      onDrop,
+      accept: {
+        "video/*": [".mp4", ".avi", ".mov", ".mkv"],
+        "audio/*": [".mp3", ".wav", ".m4a", ".flac"],
+        "application/pdf": [".pdf"],
+        "image/*": [".jpg", ".jpeg", ".png", ".gif"],
+      },
+      multiple: true,
+    }),
+    [onDrop],
+  )
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone(dropzoneConfig)
 
   return (
     <div className="space-y-8">
