@@ -2,6 +2,7 @@
 
 import { Users, Clock, Hash, TrendingUp, Download } from "lucide-react"
 import { MediaPlayer } from "./media-player"
+import { TextViewer } from "./text-viewer"
 
 interface ResultsDisplayProps {
   results: {
@@ -28,6 +29,10 @@ interface ResultsDisplayProps {
       size: string
       resolution: string
     }
+    extractedText?: string
+    fileName?: string
+    type?: string
+    pages?: number
   }
 }
 
@@ -69,13 +74,13 @@ export function ResultsDisplay({ results }: ResultsDisplayProps) {
     URL.revokeObjectURL(url)
   }
 
-  const exportJSON = () => {
-    const jsonData = JSON.stringify(results, null, 2)
-    const blob = new Blob([jsonData], { type: "application/json" })
+  const exportText = () => {
+    const textData = results.extractedText || transcript
+    const blob = new Blob([textData], { type: "text/plain" })
     const url = URL.createObjectURL(blob)
     const link = document.createElement("a")
     link.href = url
-    link.download = "extraction-results.json"
+    link.download = `${results.fileName?.replace(/\.[^/.]+$/, "") || "extracted"}_text.txt`
     link.click()
     URL.revokeObjectURL(url)
   }
@@ -85,16 +90,29 @@ export function ResultsDisplay({ results }: ResultsDisplayProps) {
       <div className="flex items-center justify-between">
         <h4 className="text-lg font-semibold font-serif">Extraction Results</h4>
         <div className="flex gap-2">
-          <button onClick={exportTranscript} className="secondary-button text-sm py-1 px-3">
-            <Download className="w-4 h-4 mr-1" />
-            Transcript
-          </button>
-          <button onClick={exportJSON} className="action-button text-sm py-1 px-3">
-            <Download className="w-4 h-4 mr-1" />
-            JSON
-          </button>
+          {(results.extractedText || transcript) && (
+            <button
+              onClick={results.extractedText ? exportText : exportTranscript}
+              className="secondary-button text-sm py-1 px-3"
+            >
+              <Download className="w-4 h-4 mr-1" />
+              Text File
+            </button>
+          )}
         </div>
       </div>
+
+      {results.extractedText && (
+        <TextViewer
+          text={results.extractedText}
+          fileName={results.fileName || "extracted_content"}
+          type={results.type || "text"}
+          metadata={{
+            pages: results.pages,
+            language: "English",
+          }}
+        />
+      )}
 
       {results.extractedAudio && (
         <div className="space-y-3">
@@ -147,30 +165,32 @@ export function ResultsDisplay({ results }: ResultsDisplayProps) {
       </div>
 
       {/* Transcript Preview */}
-      <div className="transcript-section">
-        <h5 className="font-medium mb-3 flex items-center gap-2">
-          <Users className="w-4 h-4" />
-          Transcript with Speaker Diarization
-        </h5>
-        <div className="space-y-2">
-          {speakers.length > 0 ? (
-            speakers.map((speaker, index) => (
-              <div key={index} className="flex gap-3">
-                <span className="speaker-label">
-                  {typeof speaker === "string" ? speaker : speaker.name || `Speaker ${index + 1}`}
-                </span>
-                <p className="text-sm text-muted-foreground flex-1">
-                  {transcript.slice(index * 50, (index + 1) * 50)}...
-                </p>
+      {transcript && transcript !== "No transcript available" && !results.extractedText && (
+        <div className="transcript-section">
+          <h5 className="font-medium mb-3 flex items-center gap-2">
+            <Users className="w-4 h-4" />
+            Transcript with Speaker Diarization
+          </h5>
+          <div className="space-y-2">
+            {speakers.length > 0 ? (
+              speakers.map((speaker, index) => (
+                <div key={index} className="flex gap-3">
+                  <span className="speaker-label">
+                    {typeof speaker === "string" ? speaker : speaker.name || `Speaker ${index + 1}`}
+                  </span>
+                  <p className="text-sm text-muted-foreground flex-1">
+                    {transcript.slice(index * 50, (index + 1) * 50)}...
+                  </p>
+                </div>
+              ))
+            ) : (
+              <div className="text-sm text-muted-foreground">
+                <p>{transcript}</p>
               </div>
-            ))
-          ) : (
-            <div className="text-sm text-muted-foreground">
-              <p>{transcript}</p>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Key Points */}
       {keyPoints.length > 0 && (

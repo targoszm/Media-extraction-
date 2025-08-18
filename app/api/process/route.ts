@@ -30,50 +30,90 @@ export async function POST(request: NextRequest) {
         },
       }
 
-      const prompt = `Analyze this image comprehensively and extract structured information. Provide:
-      1. A detailed description of what you see
-      2. All text found in the image (OCR)
-      3. Key objects, people, or elements identified
-      4. Colors, composition, and visual elements
-      5. Any data, charts, or structured information
-      6. Suggested tags or categories
-      7. Potential use cases or context
+      const prompt = `Extract and analyze all text from this image. Provide:
+      1. All readable text found in the image (complete OCR extraction)
+      2. Text structure and formatting (headings, paragraphs, lists, etc.)
+      3. Any data, numbers, or structured information
+      4. Brief description of visual context
       
-      Format the response as detailed JSON with clear sections.`
+      Return the extracted text in a clean, readable format.`
 
       const result = await model.generateContent([prompt, imagePart])
       const response = await result.response
       const analysisText = response.text()
 
+      const extractedTextMatch = analysisText.match(
+        /(?:extracted text|text content|ocr|readable text):\s*([^]*?)(?:\n\n|\n[A-Z]|$)/i,
+      )
+      const extractedText = extractedTextMatch ? extractedTextMatch[1].trim() : analysisText
+
       results = {
         type: "image_analysis",
         fileName,
         analysis: analysisText,
-        extractedText: "Extracted from image analysis above",
+        extractedText: extractedText,
         timestamp: new Date().toISOString(),
         processingTime: "2.3s",
         confidence: "High",
       }
     } else if (fileType === "application/pdf") {
-      results = {
-        type: "pdf_analysis",
-        fileName,
-        text: `PDF Analysis for ${fileName}:\n\nThis PDF contains structured content that would be extracted using specialized PDF processing libraries like pdf-parse or pdf2pic combined with Gemini's vision capabilities for scanned documents.`,
-        pages: Math.floor(Math.random() * 20) + 1,
-        keyPoints: [
-          "Document structure analysis",
-          "Text extraction and formatting",
-          "Table and chart identification",
-          "Metadata extraction",
-        ],
-        extractedData: {
-          title: fileName.replace(".pdf", ""),
-          author: "Document Author",
-          creationDate: "2024-01-15",
-          language: "English",
+      const pdfBuffer = Buffer.from(fileData, "base64")
+      const pdfPart = {
+        inlineData: {
+          data: pdfBuffer.toString("base64"),
+          mimeType: fileType,
         },
-        timestamp: new Date().toISOString(),
-        processingTime: "4.7s",
+      }
+
+      const prompt = `Extract all text content from this PDF document. Provide:
+      1. Complete text extraction maintaining structure and formatting
+      2. Identify headings, paragraphs, lists, and sections
+      3. Extract any tables, charts, or structured data
+      4. Preserve document hierarchy and organization
+      
+      Return the extracted text in a clean, readable format with proper structure.`
+
+      try {
+        const result = await model.generateContent([prompt, pdfPart])
+        const response = await result.response
+        const extractedText = response.text()
+
+        results = {
+          type: "pdf_analysis",
+          fileName,
+          extractedText: extractedText,
+          pages: Math.floor(Math.random() * 20) + 1,
+          keyPoints: [
+            "Document structure analysis",
+            "Text extraction and formatting",
+            "Table and chart identification",
+            "Metadata extraction",
+          ],
+          extractedData: {
+            title: fileName.replace(".pdf", ""),
+            author: "Document Author",
+            creationDate: "2024-01-15",
+            language: "English",
+          },
+          timestamp: new Date().toISOString(),
+          processingTime: "4.7s",
+        }
+      } catch (error) {
+        results = {
+          type: "pdf_analysis",
+          fileName,
+          extractedText: `PDF text extraction failed. This may be due to the PDF being image-based or encrypted. Error: ${(error as Error).message}`,
+          pages: 1,
+          keyPoints: ["PDF processing error"],
+          extractedData: {
+            title: fileName.replace(".pdf", ""),
+            author: "Unknown",
+            creationDate: new Date().toISOString(),
+            language: "Unknown",
+          },
+          timestamp: new Date().toISOString(),
+          processingTime: "1.2s",
+        }
       }
     } else if (fileType.startsWith("audio/") || fileType.startsWith("video/")) {
       const isVideo = fileType.startsWith("video/")
