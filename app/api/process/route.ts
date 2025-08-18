@@ -425,26 +425,29 @@ DOCUMENT SUMMARY: [Brief summary of the document]`
 
       try {
         if (isVideo) {
-          console.log("[v0] Processing video with AssemblyAI...")
-          const speechResults = await processAudioWithSpeechToText(fileBuffer, true)
+          console.log("[v0] Video file detected - providing guidance for audio extraction")
 
           results = {
             type: "video_analysis",
             fileName,
-            transcript: speechResults.transcript,
-            duration: speechResults.duration,
-            speakers: speechResults.speakers,
-            keyPoints: speechResults.keyPoints,
-            sentiment: speechResults.sentiment,
-            topics: speechResults.topics,
+            transcript:
+              "Video processing requires audio extraction. For best results, please extract the audio track as MP3/WAV and upload it separately for full speech-to-text processing with speaker diarization.",
+            duration: "Unknown",
+            speakers: [],
+            keyPoints: [
+              "Video preview available",
+              "Audio extraction required for transcription",
+              "Use video editing software to extract audio",
+              "Upload extracted audio for speech-to-text processing",
+              "AssemblyAI supports audio files up to 5GB",
+            ],
+            sentiment: "Neutral",
+            topics: ["Video Processing", "Audio Extraction"],
             timestamp: new Date().toISOString(),
-            processingTime: "Real processing time varies",
-            confidence: speechResults.confidence,
-            status: speechResults.status,
-            error: speechResults.error,
-            note: speechResults.error
-              ? "Video processing failed - audio extraction may be required"
-              : "Video processed successfully",
+            processingTime: "Instant",
+            confidence: 1.0,
+            status: "guidance_provided",
+            note: "To enable full video transcription, extract audio separately and upload as MP3/WAV format",
           }
         } else {
           // Process audio files directly
