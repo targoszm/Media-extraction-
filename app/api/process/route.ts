@@ -425,23 +425,26 @@ DOCUMENT SUMMARY: [Brief summary of the document]`
 
       try {
         if (isVideo) {
+          console.log("[v0] Processing video with AssemblyAI...")
+          const speechResults = await processAudioWithSpeechToText(fileBuffer, true)
+
           results = {
             type: "video_analysis",
             fileName,
-            transcript:
-              "Video processing requires audio extraction. For best results, please extract the audio track as MP3/WAV and upload it separately for full speech-to-text processing with speaker diarization.",
-            duration: "Unknown",
-            speakers: [],
-            keyPoints: [
-              "Video file detected",
-              "Audio extraction needed for transcription",
-              "Upload audio file separately for processing",
-            ],
-            sentiment: "Neutral",
-            topics: [],
+            transcript: speechResults.transcript,
+            duration: speechResults.duration,
+            speakers: speechResults.speakers,
+            keyPoints: speechResults.keyPoints,
+            sentiment: speechResults.sentiment,
+            topics: speechResults.topics,
             timestamp: new Date().toISOString(),
-            processingTime: "N/A",
-            note: "For video transcription, extract audio as MP3/WAV and upload separately.",
+            processingTime: "Real processing time varies",
+            confidence: speechResults.confidence,
+            status: speechResults.status,
+            error: speechResults.error,
+            note: speechResults.error
+              ? "Video processing failed - audio extraction may be required"
+              : "Video processed successfully",
           }
         } else {
           // Process audio files directly
