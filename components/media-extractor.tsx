@@ -220,13 +220,13 @@ export function MediaExtractor() {
       }
 
       // Update progress to processing
-      setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, status: "processing", progress: 50 } : f)))
+      setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, status: "processing", progress: 25 } : f)))
 
       // Convert file to base64 for processing
       const fileBuffer = await file.arrayBuffer()
       const base64Data = Buffer.from(fileBuffer).toString("base64")
 
-      // Process file with Gemini
+      // Process with Gemini first
       const processResponse = await fetch("/api/process", {
         method: "POST",
         headers: {
@@ -242,9 +242,55 @@ export function MediaExtractor() {
       })
 
       const processResult = await processResponse.json()
-
       if (!processResponse.ok) {
         throw new Error(processResult.error || "Processing failed")
+      }
+      const results = processResult.results
+
+      setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, progress: 50 } : f)))
+
+      // Extract audio if requested
+      if (options?.audio && (file.type.startsWith("video/") || file.type.startsWith("audio/"))) {
+        const audioResponse = await fetch("/api/extract-audio", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            fileId,
+            fileData: base64Data,
+            fileName: file.name,
+            fileType: file.type,
+          }),
+        })
+
+        if (audioResponse.ok) {
+          const audioResult = await audioResponse.json()
+          results.extractedAudio = audioResult.extractedAudio
+        }
+      }
+
+      setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, progress: 75 } : f)))
+
+      // Extract video if requested
+      if (options?.video && file.type.startsWith("video/")) {
+        const videoResponse = await fetch("/api/extract-video", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            fileId,
+            fileData: base64Data,
+            fileName: file.name,
+            fileType: file.type,
+          }),
+        })
+
+        if (videoResponse.ok) {
+          const videoResult = await videoResponse.json()
+          results.extractedVideo = videoResult.extractedVideo
+        }
       }
 
       // Complete processing
@@ -255,7 +301,7 @@ export function MediaExtractor() {
                 ...f,
                 status: "completed",
                 progress: 100,
-                results: processResult.results,
+                results,
               }
             : f,
         ),
