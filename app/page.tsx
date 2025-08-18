@@ -1,5 +1,5 @@
 "use client"
-import { MediaExtractor } from "@/components/media-extractor"
+import SimpleMediaExtractor from "@/components/simple-media-extractor"
 import { Header } from "@/components/header"
 import { StatsOverview } from "@/components/stats-overview"
 
@@ -29,7 +29,7 @@ export default function Home() {
         <StatsOverview />
 
         <section className="mt-12">
-          <MediaExtractor />
+          <SimpleMediaExtractor />
         </section>
       </main>
 
