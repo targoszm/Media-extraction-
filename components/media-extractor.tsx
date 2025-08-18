@@ -52,7 +52,10 @@ export function MediaExtractor() {
       const id = Math.random().toString(36).substr(2, 9)
       let previewUrl = ""
 
-      if ((file.type.startsWith("image/") || file.type.startsWith("video/")) && file.size < 50 * 1024 * 1024) {
+      if (
+        (file.type.startsWith("image/") || file.type.startsWith("video/") || file.type.startsWith("audio/")) &&
+        file.size < 50 * 1024 * 1024
+      ) {
         previewUrl = URL.createObjectURL(file)
       }
 
@@ -442,6 +445,14 @@ export function MediaExtractor() {
                           className="max-w-full h-32 object-cover rounded-lg"
                           controls
                         />
+                      ) : uploadedFile.file?.type.startsWith("audio/") ? (
+                        <div className="bg-muted/50 rounded-lg p-4">
+                          <div className="flex items-center gap-3 mb-2">
+                            <Music className="w-5 h-5 text-primary" />
+                            <span className="text-sm font-medium">Audio Preview</span>
+                          </div>
+                          <audio src={uploadedFile.previewUrl} className="w-full" controls preload="metadata" />
+                        </div>
                       ) : null}
                     </div>
                   )}
