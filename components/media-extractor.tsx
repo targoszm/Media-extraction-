@@ -12,6 +12,7 @@ interface UploadedFile {
   status: "uploading" | "processing" | "completed" | "error"
   progress: number
   results?: any
+  error?: string
 }
 
 export function MediaExtractor() {
@@ -28,9 +29,9 @@ export function MediaExtractor() {
 
     setFiles((prev) => [...prev, ...newFiles])
 
-    // Simulate upload and processing
+    // Process each file with real API calls
     newFiles.forEach((uploadedFile) => {
-      simulateProcessing(uploadedFile.id)
+      processFile(uploadedFile.id, uploadedFile.file)
     })
   }, [])
 
@@ -45,50 +46,80 @@ export function MediaExtractor() {
     multiple: true,
   })
 
-  const simulateProcessing = async (fileId: string) => {
+  const processFile = async (fileId: string, file: File) => {
     setIsProcessing(true)
 
-    // Simulate upload progress
-    for (let i = 0; i <= 100; i += 10) {
-      await new Promise((resolve) => setTimeout(resolve, 100))
-      setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, progress: i } : f)))
+    try {
+      // Upload file
+      const formData = new FormData()
+      formData.append("file", file)
+
+      const uploadResponse = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      })
+
+      if (!uploadResponse.ok) {
+        throw new Error("Upload failed")
+      }
+
+      // Update progress to processing
+      setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, status: "processing", progress: 50 } : f)))
+
+      // Convert file to base64 for processing
+      const fileBuffer = await file.arrayBuffer()
+      const base64Data = Buffer.from(fileBuffer).toString("base64")
+
+      // Process file with Gemini
+      const processResponse = await fetch("/api/process", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          fileId,
+          fileData: base64Data,
+          fileName: file.name,
+          fileType: file.type,
+        }),
+      })
+
+      const processResult = await processResponse.json()
+
+      if (!processResponse.ok) {
+        throw new Error(processResult.error || "Processing failed")
+      }
+
+      // Complete processing
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === fileId
+            ? {
+                ...f,
+                status: "completed",
+                progress: 100,
+                results: processResult.results,
+              }
+            : f,
+        ),
+      )
+    } catch (error) {
+      console.error("Processing error:", error)
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === fileId
+            ? {
+                ...f,
+                status: "error",
+                progress: 0,
+                error: error instanceof Error ? error.message : "Processing failed",
+              }
+            : f,
+        ),
+      )
+    } finally {
+      setIsProcessing(false)
     }
-
-    // Change to processing
-    setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, status: "processing", progress: 0 } : f)))
-
-    // Simulate processing
-    for (let i = 0; i <= 100; i += 5) {
-      await new Promise((resolve) => setTimeout(resolve, 150))
-      setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, progress: i } : f)))
-    }
-
-    // Complete processing with mock results
-    const mockResults = {
-      transcript: "This is a sample transcript extracted from the media file...",
-      speakers: ["Speaker 1", "Speaker 2"],
-      duration: "5:23",
-      extractedData: {
-        keyPoints: ["Important point 1", "Key insight 2", "Main topic 3"],
-        sentiment: "Positive",
-        topics: ["Technology", "AI", "Innovation"],
-      },
-    }
-
-    setFiles((prev) =>
-      prev.map((f) =>
-        f.id === fileId
-          ? {
-              ...f,
-              status: "completed",
-              progress: 100,
-              results: mockResults,
-            }
-          : f,
-      ),
-    )
-
-    setIsProcessing(false)
   }
 
   const removeFile = (fileId: string) => {
@@ -152,7 +183,13 @@ export function MediaExtractor() {
                     </button>
                   </div>
 
-                  {uploadedFile.status !== "completed" && (
+                  {uploadedFile.status === "error" && (
+                    <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+                      <p className="text-sm text-destructive">Error: {uploadedFile.error}</p>
+                    </div>
+                  )}
+
+                  {uploadedFile.status !== "completed" && uploadedFile.status !== "error" && (
                     <ProcessingPanel status={uploadedFile.status} progress={uploadedFile.progress} />
                   )}
 
