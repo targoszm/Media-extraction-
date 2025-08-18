@@ -47,15 +47,15 @@ async function processAudioWithSpeechToText(audioBuffer: Buffer, isVideo = false
       throw new Error("AssemblyAI API key not configured")
     }
 
-    // Create a temporary file for AssemblyAI upload
-    const tempAudioPath = path.join("/tmp", `audio_${Date.now()}.wav`)
-    fs.writeFileSync(tempAudioPath, audioBuffer)
+    console.log("[v0] Processing audio with AssemblyAI...")
 
-    console.log("[v0] Uploading audio to AssemblyAI...")
+    // Convert buffer to base64 for AssemblyAI upload
+    const audioBase64 = audioBuffer.toString("base64")
+    const audioDataUrl = `data:audio/wav;base64,${audioBase64}`
 
     // Upload and transcribe with AssemblyAI
     const transcript = await assemblyAI.transcripts.transcribe({
-      audio: tempAudioPath,
+      audio: audioDataUrl,
       speaker_labels: true, // Enable speaker diarization
       auto_highlights: true,
       sentiment_analysis: true,
@@ -63,9 +63,6 @@ async function processAudioWithSpeechToText(audioBuffer: Buffer, isVideo = false
       punctuate: true,
       format_text: true,
     })
-
-    // Clean up temp file
-    fs.unlinkSync(tempAudioPath)
 
     if (transcript.status === "error") {
       throw new Error(`AssemblyAI transcription failed: ${transcript.error}`)
@@ -314,35 +311,45 @@ export async function POST(request: NextRequest) {
         let audioBuffer: Buffer
 
         if (isVideo) {
-          // Extract audio from video file
-          console.log("[v0] Extracting audio from video file...")
-          audioBuffer = await extractAudioFromVideo(fileBuffer)
+          // For video files, provide a fallback message since we can't extract audio without ffmpeg
+          results = {
+            type: "video_analysis",
+            fileName,
+            transcript:
+              "Video audio extraction requires server-side processing. For now, please extract the audio separately and upload as an audio file for transcription.",
+            duration: "Unknown",
+            speakers: [],
+            keyPoints: ["Video processing limitation in current environment"],
+            sentiment: "Neutral",
+            topics: [],
+            timestamp: new Date().toISOString(),
+            processingTime: "N/A",
+            note: "Upload audio files directly for full speech-to-text processing with speaker diarization.",
+          }
         } else {
-          // Use audio file directly
-          audioBuffer = fileBuffer
-        }
+          // Process audio files directly
+          console.log("[v0] Processing audio with AssemblyAI...")
+          const speechResults = await processAudioWithSpeechToText(fileBuffer, false)
 
-        console.log("[v0] Processing audio with AssemblyAI...")
-        const speechResults = await processAudioWithSpeechToText(audioBuffer, isVideo)
-
-        results = {
-          type: isVideo ? "video_analysis" : "audio_analysis",
-          fileName,
-          transcript: speechResults.transcript,
-          duration: speechResults.duration,
-          speakers: speechResults.speakers,
-          keyPoints: speechResults.keyPoints,
-          sentiment: speechResults.sentiment,
-          topics: speechResults.topics,
-          timestamp: new Date().toISOString(),
-          processingTime: "Real processing time varies",
-          confidence: speechResults.confidence,
+          results = {
+            type: "audio_analysis",
+            fileName,
+            transcript: speechResults.transcript,
+            duration: speechResults.duration,
+            speakers: speechResults.speakers,
+            keyPoints: speechResults.keyPoints,
+            sentiment: speechResults.sentiment,
+            topics: speechResults.topics,
+            timestamp: new Date().toISOString(),
+            processingTime: "Real processing time varies",
+            confidence: speechResults.confidence,
+          }
         }
       } catch (error) {
         console.error("[v0] Audio processing error:", error)
         // Fallback to basic analysis if speech-to-text fails
         results = {
-          type: isVideo ? "video_analysis" : "audio_analysis",
+          type: fileType.startsWith("video/") ? "video_analysis" : "audio_analysis",
           fileName,
           transcript: `Audio processing failed: ${(error as Error).message}. This may be due to audio format compatibility or AssemblyAI configuration issues.`,
           duration: "Unknown",

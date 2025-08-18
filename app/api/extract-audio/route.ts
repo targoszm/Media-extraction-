@@ -5,21 +5,32 @@ export async function POST(request: NextRequest) {
     const { fileId, fileData, fileName, fileType } = await request.json()
 
     if (fileType.startsWith("video/") || fileType.startsWith("audio/")) {
-      // In a real implementation, you would use ffmpeg or similar to extract audio
-      // For now, we'll create a blob URL for the audio data
-      const audioBlob = `data:audio/wav;base64,${fileData}`
+      // For v0 compatibility, we'll return the original audio data or provide guidance for video files
+      if (fileType.startsWith("audio/")) {
+        const audioBlob = `data:${fileType};base64,${fileData}`
 
-      return NextResponse.json({
-        success: true,
-        fileId,
-        extractedAudio: {
-          url: audioBlob,
-          fileName: fileName.replace(/\.[^/.]+$/, ".wav"),
-          duration: "3:45",
-          format: "wav",
-          size: "2.1 MB",
-        },
-      })
+        return NextResponse.json({
+          success: true,
+          fileId,
+          extractedAudio: {
+            url: audioBlob,
+            fileName: fileName,
+            duration: "Unknown",
+            format: fileType.split("/")[1],
+            size: "Original size",
+            note: "Audio file ready for processing",
+          },
+        })
+      } else {
+        // For video files, provide guidance since we can't extract audio without ffmpeg
+        return NextResponse.json({
+          success: false,
+          fileId,
+          message:
+            "Video audio extraction requires server-side processing. Please extract audio separately and upload as an audio file.",
+          suggestion: "Use tools like VLC or online converters to extract audio from video files.",
+        })
+      }
     }
 
     return NextResponse.json({ error: "File type not supported for audio extraction" }, { status: 400 })
