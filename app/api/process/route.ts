@@ -189,7 +189,25 @@ function extractTopics(text: string): string[] {
 
 export async function POST(request: NextRequest) {
   try {
-    const { fileId, fileData, fileName, fileType, extractionOptions } = await request.json()
+    console.log("[v0] Received request, attempting to parse JSON...")
+
+    let requestBody
+    try {
+      const rawBody = await request.text()
+      console.log("[v0] Raw request body (first 200 chars):", rawBody.substring(0, 200))
+      requestBody = JSON.parse(rawBody)
+    } catch (parseError) {
+      console.error("[v0] JSON parsing failed:", parseError)
+      console.error("[v0] Raw body that failed to parse:", await request.text())
+      return NextResponse.json(
+        {
+          error: "Invalid JSON in request body: " + (parseError as Error).message,
+        },
+        { status: 400 },
+      )
+    }
+
+    const { fileId, fileData, fileName, fileType, extractionOptions } = requestBody
 
     console.log("[v0] Processing file:", fileName, "Type:", fileType)
     console.log("[v0] Extraction options:", extractionOptions)
