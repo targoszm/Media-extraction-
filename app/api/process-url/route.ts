@@ -12,12 +12,44 @@ export async function POST(request: NextRequest) {
 
     try {
       // Fetch the actual URL content
-      const response = await fetch(url, {
+      let response = await fetch(url, {
+        method: "GET",
+        redirect: "follow", // Explicitly follow redirects
         headers: {
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.5",
+          "Accept-Encoding": "gzip, deflate",
+          DNT: "1",
+          Connection: "keep-alive",
+          "Upgrade-Insecure-Requests": "1",
         },
       })
+
+      console.log("[v0] Response status:", response.status)
+      console.log("[v0] Final URL after redirects:", response.url)
+
+      if (response.status === 302 || response.status === 301) {
+        const location = response.headers.get("location")
+        console.log("[v0] Redirect location:", location)
+
+        if (location) {
+          // Follow the redirect manually if needed
+          response = await fetch(location, {
+            headers: {
+              "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            },
+          })
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+          }
+
+          // Use the redirected response
+        }
+      }
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
