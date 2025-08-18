@@ -1,7 +1,202 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { GoogleGenerativeAI } from "@google/generative-ai"
+import { SpeechClient } from "@google-cloud/speech"
+import * as fs from "fs"
+import * as path from "path"
+import ffmpeg from "fluent-ffmpeg"
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || "")
+
+const speechClient = new SpeechClient({
+  keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS,
+  projectId: process.env.GOOGLE_CLOUD_PROJECT_ID,
+})
+
+async function extractAudioFromVideo(videoBuffer: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const tempVideoPath = path.join("/tmp", `video_${Date.now()}.mp4`)
+    const tempAudioPath = path.join("/tmp", `audio_${Date.now()}.wav`)
+
+    // Write video buffer to temp file
+    fs.writeFileSync(tempVideoPath, videoBuffer)
+
+    ffmpeg(tempVideoPath)
+      .toFormat("wav")
+      .audioChannels(1)
+      .audioFrequency(16000)
+      .on("end", () => {
+        try {
+          const audioBuffer = fs.readFileSync(tempAudioPath)
+          // Clean up temp files
+          fs.unlinkSync(tempVideoPath)
+          fs.unlinkSync(tempAudioPath)
+          resolve(audioBuffer)
+        } catch (error) {
+          reject(error)
+        }
+      })
+      .on("error", (error) => {
+        reject(error)
+      })
+      .save(tempAudioPath)
+  })
+}
+
+async function processAudioWithSpeechToText(audioBuffer: Buffer, isVideo = false): Promise<any> {
+  try {
+    const request = {
+      audio: {
+        content: audioBuffer.toString("base64"),
+      },
+      config: {
+        encoding: "LINEAR16" as const,
+        sampleRateHertz: 16000,
+        languageCode: "en-US",
+        enableAutomaticPunctuation: true,
+        useEnhanced: true,
+        model: isVideo ? "video" : "default",
+        diarizationConfig: {
+          enableSpeakerDiarization: true,
+          minSpeakerCount: 1,
+          maxSpeakerCount: 10,
+        },
+        enableWordTimeOffsets: true,
+      },
+    }
+
+    const [response] = await speechClient.recognize(request)
+
+    if (!response.results || response.results.length === 0) {
+      throw new Error("No speech detected in audio")
+    }
+
+    // Process results to create formatted transcript with speaker diarization
+    let transcript = ""
+    const speakers = new Map()
+    const keyPoints = []
+
+    response.results.forEach((result) => {
+      if (result.alternatives && result.alternatives[0]) {
+        const alternative = result.alternatives[0]
+
+        if (alternative.words) {
+          let currentSpeaker = null
+          let currentSegment = ""
+          let segmentStartTime = null
+
+          alternative.words.forEach((word) => {
+            const speakerTag = word.speakerTag || 1
+            const startTime = word.startTime?.seconds || 0
+
+            if (currentSpeaker !== speakerTag) {
+              // New speaker, save previous segment
+              if (currentSegment && currentSpeaker !== null) {
+                const timeStr = formatTime(segmentStartTime || 0)
+                transcript += `[${timeStr}] Speaker ${currentSpeaker}: ${currentSegment.trim()}\n`
+              }
+
+              currentSpeaker = speakerTag
+              currentSegment = ""
+              segmentStartTime = startTime
+
+              // Track speaker info
+              if (!speakers.has(speakerTag)) {
+                speakers.set(speakerTag, {
+                  id: `speaker_${speakerTag}`,
+                  name: `Speaker ${speakerTag}`,
+                  segments: 0,
+                  duration: "0:00",
+                })
+              }
+              speakers.get(speakerTag).segments++
+            }
+
+            currentSegment += word.word + " "
+          })
+
+          // Add final segment
+          if (currentSegment && currentSpeaker !== null) {
+            const timeStr = formatTime(segmentStartTime || 0)
+            transcript += `[${timeStr}] Speaker ${currentSpeaker}: ${currentSegment.trim()}\n`
+          }
+        } else {
+          // Fallback for results without word-level timing
+          transcript += alternative.transcript + "\n"
+        }
+
+        // Extract key points from transcript segments
+        if (alternative.transcript && alternative.transcript.length > 50) {
+          keyPoints.push(alternative.transcript.substring(0, 100) + "...")
+        }
+      }
+    })
+
+    // Calculate duration and speaker stats
+    const totalDuration = response.totalBilledTime?.seconds || 0
+    const durationStr = formatTime(totalDuration)
+
+    // Update speaker durations (simplified calculation)
+    const speakerArray = Array.from(speakers.values())
+    speakerArray.forEach((speaker, index) => {
+      const speakerDuration = Math.floor(totalDuration / speakerArray.length)
+      speaker.duration = formatTime(speakerDuration)
+    })
+
+    return {
+      transcript: transcript || "No speech detected in the audio.",
+      duration: durationStr,
+      speakers: speakerArray,
+      keyPoints: keyPoints.slice(0, 5), // Limit to 5 key points
+      sentiment: analyzeSentiment(transcript),
+      topics: extractTopics(transcript),
+      confidence: response.results[0]?.alternatives?.[0]?.confidence || 0.8,
+    }
+  } catch (error) {
+    console.error("Speech-to-text processing error:", error)
+    throw new Error(`Speech processing failed: ${(error as Error).message}`)
+  }
+}
+
+function formatTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
+}
+
+function analyzeSentiment(text: string): string {
+  const positiveWords = ["good", "great", "excellent", "amazing", "wonderful", "fantastic", "positive", "success"]
+  const negativeWords = ["bad", "terrible", "awful", "horrible", "negative", "failure", "problem", "issue"]
+
+  const words = text.toLowerCase().split(/\s+/)
+  const positiveCount = words.filter((word) => positiveWords.includes(word)).length
+  const negativeCount = words.filter((word) => negativeWords.includes(word)).length
+
+  if (positiveCount > negativeCount) return "Positive"
+  if (negativeCount > positiveCount) return "Negative"
+  return "Neutral"
+}
+
+function extractTopics(text: string): string[] {
+  const commonTopics = [
+    "technology",
+    "business",
+    "education",
+    "health",
+    "science",
+    "politics",
+    "entertainment",
+    "sports",
+    "finance",
+    "marketing",
+    "innovation",
+    "strategy",
+  ]
+
+  const words = text.toLowerCase().split(/\s+/)
+  const foundTopics = commonTopics.filter((topic) => words.some((word) => word.includes(topic) || topic.includes(word)))
+
+  return foundTopics.slice(0, 3) // Return up to 3 topics
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -117,27 +312,52 @@ export async function POST(request: NextRequest) {
       }
     } else if (fileType.startsWith("audio/") || fileType.startsWith("video/")) {
       const isVideo = fileType.startsWith("video/")
-      const duration = `${Math.floor(Math.random() * 60)}:${String(Math.floor(Math.random() * 60)).padStart(2, "0")}`
+      const fileBuffer = Buffer.from(fileData, "base64")
 
-      results = {
-        type: isVideo ? "video_analysis" : "audio_analysis",
-        fileName,
-        transcript: `[00:00] Speaker 1: Welcome to this ${isVideo ? "video" : "audio"} content analysis.\n[00:15] Speaker 2: This transcript would be generated using speech-to-text services.\n[00:30] Speaker 1: The content includes speaker diarization and timestamp alignment.\n[00:45] Speaker 2: Key topics and themes would be automatically identified.`,
-        duration,
-        speakers: [
-          { id: "speaker_1", name: "Speaker 1", segments: 12, duration: "2:34" },
-          { id: "speaker_2", name: "Speaker 2", segments: 8, duration: "1:45" },
-        ],
-        keyPoints: [
-          "Introduction and overview",
-          "Main discussion topics",
-          "Key insights and conclusions",
-          "Action items or next steps",
-        ],
-        sentiment: "Positive",
-        topics: ["Technology", "Innovation", "Strategy"],
-        timestamp: new Date().toISOString(),
-        processingTime: "8.2s",
+      try {
+        let audioBuffer: Buffer
+
+        if (isVideo) {
+          // Extract audio from video file
+          console.log("[v0] Extracting audio from video file...")
+          audioBuffer = await extractAudioFromVideo(fileBuffer)
+        } else {
+          // Use audio file directly
+          audioBuffer = fileBuffer
+        }
+
+        console.log("[v0] Processing audio with Google Speech-to-Text...")
+        const speechResults = await processAudioWithSpeechToText(audioBuffer, isVideo)
+
+        results = {
+          type: isVideo ? "video_analysis" : "audio_analysis",
+          fileName,
+          transcript: speechResults.transcript,
+          duration: speechResults.duration,
+          speakers: speechResults.speakers,
+          keyPoints: speechResults.keyPoints,
+          sentiment: speechResults.sentiment,
+          topics: speechResults.topics,
+          timestamp: new Date().toISOString(),
+          processingTime: "Real processing time varies",
+          confidence: speechResults.confidence,
+        }
+      } catch (error) {
+        console.error("[v0] Audio processing error:", error)
+        // Fallback to basic analysis if speech-to-text fails
+        results = {
+          type: isVideo ? "video_analysis" : "audio_analysis",
+          fileName,
+          transcript: `Audio processing failed: ${(error as Error).message}. This may be due to audio format compatibility or Google Cloud configuration issues.`,
+          duration: "Unknown",
+          speakers: [],
+          keyPoints: ["Audio processing error"],
+          sentiment: "Unknown",
+          topics: [],
+          timestamp: new Date().toISOString(),
+          processingTime: "Failed",
+          error: (error as Error).message,
+        }
       }
     } else {
       results = {
