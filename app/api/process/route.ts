@@ -1,45 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { GoogleGenerativeAI } from "@google/generative-ai"
 import { AssemblyAI } from "assemblyai"
-import * as fs from "fs"
-import * as path from "path"
-import ffmpeg from "fluent-ffmpeg"
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || "")
 
 const assemblyAI = new AssemblyAI({
   apiKey: process.env.ASSEMBLYAI_API_KEY || "",
 })
-
-async function extractAudioFromVideo(videoBuffer: Buffer): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const tempVideoPath = path.join("/tmp", `video_${Date.now()}.mp4`)
-    const tempAudioPath = path.join("/tmp", `audio_${Date.now()}.wav`)
-
-    // Write video buffer to temp file
-    fs.writeFileSync(tempVideoPath, videoBuffer)
-
-    ffmpeg(tempVideoPath)
-      .toFormat("wav")
-      .audioChannels(1)
-      .audioFrequency(16000)
-      .on("end", () => {
-        try {
-          const audioBuffer = fs.readFileSync(tempAudioPath)
-          // Clean up temp files
-          fs.unlinkSync(tempVideoPath)
-          fs.unlinkSync(tempAudioPath)
-          resolve(audioBuffer)
-        } catch (error) {
-          reject(error)
-        }
-      })
-      .on("error", (error) => {
-        reject(error)
-      })
-      .save(tempAudioPath)
-  })
-}
 
 async function processAudioWithSpeechToText(audioBuffer: Buffer, isVideo = false): Promise<any> {
   try {
