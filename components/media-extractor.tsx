@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useMemo, useEffect } from "react"
+import { useState, useCallback, useMemo, useEffect, useRef } from "react"
 import { useDropzone } from "react-dropzone"
 import {
   Upload,
@@ -47,15 +47,18 @@ export function MediaExtractor() {
   const [urlInput, setUrlInput] = useState("")
   const [showUrlInput, setShowUrlInput] = useState(false)
 
+  const cleanupRef = useRef<Set<string>>(new Set())
+
   useEffect(() => {
     return () => {
       files.forEach((file) => {
-        if (file.previewUrl) {
+        if (file.previewUrl && !cleanupRef.current.has(file.id)) {
           URL.revokeObjectURL(file.previewUrl)
+          cleanupRef.current.add(file.id)
         }
       })
     }
-  }, [])
+  }, [files.length]) // Only depend on length, not entire files array
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map((file) => {
@@ -77,35 +80,34 @@ export function MediaExtractor() {
     })
 
     setFiles((prev) => [...prev, ...newFiles])
-  }, [])
+  }, []) // Removed getDefaultExtractionOptions dependency
 
-  const getDefaultExtractionOptions = useMemo(
-    () =>
-      (fileType: string): ExtractionOptions => {
-        if (fileType.startsWith("video/")) {
-          return { audio: true, video: true, text: false, metadata: true, script: true }
-        } else if (fileType.startsWith("audio/")) {
-          return { audio: true, video: false, text: false, metadata: true, script: true }
-        } else if (fileType === "application/pdf") {
-          return { audio: false, video: false, text: true, metadata: true, script: false }
-        } else if (fileType.startsWith("image/")) {
-          return { audio: false, video: false, text: true, metadata: true, script: false }
-        }
+  const getDefaultExtractionOptions = useCallback(
+    (fileType: string): ExtractionOptions => {
+      if (fileType.startsWith("video/")) {
+        return { audio: true, video: true, text: false, metadata: true, script: true }
+      } else if (fileType.startsWith("audio/")) {
+        return { audio: true, video: false, text: false, metadata: true, script: true }
+      } else if (fileType === "application/pdf") {
         return { audio: false, video: false, text: true, metadata: true, script: false }
-      },
-    [],
+      } else if (fileType.startsWith("image/")) {
+        return { audio: false, video: false, text: true, metadata: true, script: false }
+      }
+      return { audio: false, video: false, text: true, metadata: true, script: false }
+    },
+    [], // Stable function, no dependencies needed
   )
 
   const updateExtractionOptions = useCallback((fileId: string, options: ExtractionOptions) => {
     setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, extractionOptions: options } : f)))
   }, [])
 
-  const startProcessing = useCallback(
-    (fileId: string) => {
-      const file = files.find((f) => f.id === fileId)
-      if (!file) return
+  const startProcessing = useCallback((fileId: string) => {
+    setFiles((prev) => {
+      const file = prev.find((f) => f.id === fileId)
+      if (!file) return prev
 
-      setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, status: "processing", progress: 0 } : f)))
+      const updatedFiles = prev.map((f) => (f.id === fileId ? { ...f, status: "processing" as const, progress: 0 } : f))
 
       setTimeout(() => {
         if (file.file) {
@@ -114,9 +116,10 @@ export function MediaExtractor() {
           processUrl(file.url, fileId, file.extractionOptions!)
         }
       }, 0)
-    },
-    [files],
-  )
+
+      return updatedFiles
+    })
+  }, []) // No dependencies on files
 
   const processUrl = async (url: string, fileId?: string, options?: ExtractionOptions) => {
     let urlId = fileId
@@ -376,16 +379,16 @@ export function MediaExtractor() {
     }
   }
 
-  const removeFile = useCallback(
-    (fileId: string) => {
-      const file = files.find((f) => f.id === fileId)
-      if (file?.previewUrl) {
+  const removeFile = useCallback((fileId: string) => {
+    setFiles((prev) => {
+      const file = prev.find((f) => f.id === fileId)
+      if (file?.previewUrl && !cleanupRef.current.has(fileId)) {
         URL.revokeObjectURL(file.previewUrl)
+        cleanupRef.current.add(fileId)
       }
-      setFiles((prev) => prev.filter((f) => f.id !== fileId))
-    },
-    [files],
-  )
+      return prev.filter((f) => f.id !== fileId)
+    })
+  }, [])
 
   const getFileIcon = (item: UploadedFile) => {
     if (item.file) {
