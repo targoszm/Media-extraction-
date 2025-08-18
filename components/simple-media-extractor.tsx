@@ -1,11 +1,9 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Upload, FileVideo, FileAudio, FileText, Download, Play, Pause } from "lucide-react"
 
 interface ProcessedFile {
   id: string
@@ -186,7 +184,7 @@ export default function SimpleMediaExtractor() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Upload className="h-5 w-5" />
+            <span className="text-lg">📁</span>
             Upload Media Files
           </CardTitle>
         </CardHeader>
@@ -202,7 +200,7 @@ export default function SimpleMediaExtractor() {
               disabled={processing}
             />
             <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center gap-2">
-              <Upload className="h-12 w-12 text-slate-400" />
+              <span className="text-5xl text-slate-400">📤</span>
               <span className="text-lg font-medium text-slate-700">
                 {processing ? "Processing..." : "Click to upload files"}
               </span>
@@ -221,9 +219,9 @@ export default function SimpleMediaExtractor() {
             <Card key={file.id}>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  {file.type === "video" && <FileVideo className="h-5 w-5" />}
-                  {file.type === "audio" && <FileAudio className="h-5 w-5" />}
-                  {file.type === "text" && <FileText className="h-5 w-5" />}
+                  {file.type === "video" && <span className="text-lg">🎥</span>}
+                  {file.type === "audio" && <span className="text-lg">🎵</span>}
+                  {file.type === "text" && <span className="text-lg">📄</span>}
                   {file.name}
                 </CardTitle>
               </CardHeader>
@@ -234,7 +232,7 @@ export default function SimpleMediaExtractor() {
                     <h4 className="font-medium mb-2">Video Preview</h4>
                     <video src={file.extractedContent.videoUrl} controls className="w-full max-w-md rounded-lg" />
                     <Button onClick={() => downloadContent(file, "video")} className="mt-2" size="sm">
-                      <Download className="h-4 w-4 mr-2" />
+                      <span className="mr-2">⬇️</span>
                       Download Video
                     </Button>
                   </div>
@@ -250,10 +248,10 @@ export default function SimpleMediaExtractor() {
                         variant="outline"
                         size="sm"
                       >
-                        {playingAudio === file.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                        {playingAudio === file.id ? <span>⏸️</span> : <span>▶️</span>}
                       </Button>
                       <Button onClick={() => downloadContent(file, "audio")} size="sm">
-                        <Download className="h-4 w-4 mr-2" />
+                        <span className="mr-2">⬇️</span>
                         Download Audio
                       </Button>
                     </div>
@@ -276,7 +274,7 @@ export default function SimpleMediaExtractor() {
                       </pre>
                     </div>
                     <Button onClick={() => downloadContent(file, "text")} className="mt-2" size="sm">
-                      <Download className="h-4 w-4 mr-2" />
+                      <span className="mr-2">⬇️</span>
                       Download Text
                     </Button>
                   </div>
