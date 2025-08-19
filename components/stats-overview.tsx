@@ -8,7 +8,7 @@ export function StatsOverview() {
     },
     {
       icon: "⏱️",
-      value: "< 30s",
+      value: "30s",
       label: "Average Processing",
       color: "text-secondary",
     },
