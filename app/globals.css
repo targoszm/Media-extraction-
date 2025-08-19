@@ -138,7 +138,7 @@
 
 /* Media Extraction Platform Styles */
 .extraction-header {
-  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  background: black;
   color: white;
   padding: 3rem 2rem;
   text-align: center;
