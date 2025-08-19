@@ -8,11 +8,11 @@ export function Header() {
           {/* Logo + Title */}
           <div className="flex items-center gap-3">
             {/* Black square with white icon */}
-            <div className="w-10 h-10 bg-black rounded-lg flex items-center justify-center">
+            <div className="bg-black rounded-lg flex items-center tracking-normal flex-col justify-center gap-0 py-0.5 h-11 w-11">
               <Film className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h2 className="font-bold font-serif text-foreground text-left tracking-wide leading-5 text-2xl">
+              <h2 className="font-bold font-serif text-foreground text-left leading-5 text-2xl tracking-normal">
                 MediaExtract AI
               </h2>
               <span className="text-xs uppercase tracking-normal font-thin text-gray-600">
