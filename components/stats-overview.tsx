@@ -27,7 +27,7 @@ export function StatsOverview() {
   ]
 
   return (
-    <div className="extraction-stats">
+    <div className="extraction-stats leading-3">
       {stats.map((stat, index) => (
         <div key={index} className="stat-card">
           
