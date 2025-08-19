@@ -9,24 +9,24 @@ export default function Home() {
       <Header />
       <main className="container mx-auto px-4 py-8">
         <div className="extraction-header mb-8 text-center bg-black text-white font-sans rounded-4xl">
-  <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold font-serif mb-4">
-    AI Media Extractor
-  </h1>
-  <p className="text-lg md:text-xl opacity-90 max-w-3xl mx-auto leading-relaxed">
-    Extract structured data, transcripts, and insights from videos, audio, and PDFs using advanced AI technology
-  </p>
-  <div className="flex flex-wrap justify-center gap-2 mt-6 text-sm">
-    <span className="bg-primary/20 px-3 py-1 rounded-full font-medium text-white">
-      Real-time Processing
-    </span>
-    <span className="bg-secondary/20 px-3 py-1 rounded-full font-medium text-white">
-      Speaker Diarization
-    </span>
-    <span className="bg-green-600/20 px-3 py-1 rounded-full font-medium text-white">
-      Multi-format Support
-    </span>
-  </div>
-</div>
+          <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold font-serif mb-4">
+            AI Media Extractor
+          </h1>
+          <p className="text-lg md:text-xl opacity-90 max-w-3xl mx-auto leading-relaxed">
+            Extract structured data, transcripts, and insights from videos, audio, and PDFs using advanced AI technology
+          </p>
+          <div className="flex flex-wrap justify-center gap-2 mt-6 text-sm">
+            <span className="bg-primary/20 px-3 py-1 rounded-full font-medium text-white">
+              Real-time Processing
+            </span>
+            <span className="bg-secondary/20 px-3 py-1 rounded-full font-medium text-white">
+              Speaker Diarization
+            </span>
+            <span className="bg-green-600/20 px-3 py-1 rounded-full font-medium text-white">
+              Multi-format Support
+            </span>
+          </div>
+        </div>
 
         <StatsOverview />
 
