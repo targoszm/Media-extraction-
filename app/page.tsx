@@ -16,13 +16,13 @@ export default function Home() {
             Extract structured data, transcripts, and insights from videos, audio, and PDFs using advanced AI technology
           </p>
           <div className="flex flex-wrap justify-center gap-2 mt-6 text-sm">
-            <span className="px-3 py-1 rounded-full font-medium text-white bg-slate-400">
+            <span className="px-3 py-1 rounded-full text-white bg-slate-400 font-normal text-sm">
               Real-time Processing
             </span>
-            <span className="px-3 py-1 rounded-full font-medium text-white bg-slate-400">
+            <span className="px-3 py-1 rounded-full text-white bg-slate-400 font-normal text-sm">
               Speaker Diarization
             </span>
-            <span className="px-3 py-1 rounded-full bg-slate-400 font-normal">
+            <span className="px-3 py-1 rounded-full bg-slate-400 font-normal text-white text-sm">
               Multi-format Support
             </span>
           </div>
