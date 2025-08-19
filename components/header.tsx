@@ -5,13 +5,13 @@ export function Header() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-              <span className="text-white text-xl">🧠</span>
+              <span className="text-white text-xl">{""}</span>
             </div>
             <div>
-              <h2 className="text-xl font-bold font-serif text-foreground">MediaExtract AI</h2>
+              <h2 className="font-bold font-serif text-foreground text-left tracking-wide leading-5 text-2xl">MediaExtract AI</h2>
               <div className="flex items-center gap-1">
-                <span className="text-secondary text-xs">⚡</span>
-                <span className="text-xs font-semibold text-secondary uppercase tracking-wide">
+                <span className="text-secondary text-xs text-left">{""}</span>
+                <span className="text-xs uppercase tracking-normal font-thin text-gray-600">
                   Powered by Gemini 2.0
                 </span>
               </div>
