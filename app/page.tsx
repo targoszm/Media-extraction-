@@ -8,19 +8,19 @@ export default function Home() {
     <div className="min-h-screen bg-background">
       <Header />
       <main className="container mx-auto px-4 py-8">
-        <div className="extraction-header rounded-2xl mb-8 text-center">
-          <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold font-serif mb-4 bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+        <div className="extraction-header mb-8 text-center text-black bg-black border-black border-solid font-sans rounded-4xl">
+          <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold font-serif mb-4 bg-gradient-to-r from-primary to-secondary bg-clip-text text-white">
             AI Media Extractor
           </h1>
           <p className="text-lg md:text-xl opacity-90 max-w-3xl mx-auto leading-relaxed">
             Extract structured data, transcripts, and insights from videos, audio, and PDFs using advanced AI technology
           </p>
           <div className="flex flex-wrap justify-center gap-2 mt-6 text-sm">
-            <span className="bg-primary/10 text-primary px-3 py-1 rounded-full font-medium">Real-time Processing</span>
-            <span className="bg-secondary/10 text-secondary px-3 py-1 rounded-full font-medium">
+            <span className="bg-primary/10 px-3 py-1 rounded-full font-medium text-white">Real-time Processing</span>
+            <span className="bg-secondary/10 px-3 py-1 rounded-full font-medium text-white">
               Speaker Diarization
             </span>
-            <span className="bg-green-600/10 text-green-600 px-3 py-1 rounded-full font-medium">
+            <span className="bg-green-600/10 px-3 py-1 rounded-full font-medium text-white">
               Multi-format Support
             </span>
           </div>
