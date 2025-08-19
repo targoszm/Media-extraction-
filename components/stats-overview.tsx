@@ -32,7 +32,7 @@ export function StatsOverview() {
         <div key={index} className="stat-card">
           
           <div className="stat-value">{stat.value}</div>
-          <div className="stat-label">{stat.label}</div>
+          <div className="stat-label font-sans text-black">{stat.label}</div>
         </div>
       ))}
     </div>
