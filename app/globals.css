@@ -1,4 +1,13 @@
-Edit for me
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* your custom imports or theme after */
+@import "tw-animate-css";
+
+:root {
+  /* … variables … */
+}
 @import "tailwindcss";
 @import "tw-animate-css";
 
