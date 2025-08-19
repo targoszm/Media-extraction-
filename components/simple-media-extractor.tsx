@@ -4,6 +4,16 @@ import type React from "react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  FolderOpen,
+  UploadCloud,
+  Video,
+  Music,
+  FileText,
+  Download,
+  Play,
+  Pause,
+} from "lucide-react"
 
 interface ProcessedFile {
   id: string
@@ -38,7 +48,6 @@ export default function SimpleMediaExtractor() {
         originalFile: file,
         extractedContent: await processFile(file, fileType),
       }
-
       setFiles((prev) => [...prev, processedFile])
     }
 
@@ -52,158 +61,113 @@ export default function SimpleMediaExtractor() {
   }
 
   const processFile = async (file: File, type: "video" | "audio" | "text") => {
-    console.log("[v0] Processing file:", file.name, "Type:", type)
-
     const fileUrl = URL.createObjectURL(file)
 
     try {
       switch (type) {
-        case "video":
-          console.log("[v0] Processing video file")
-
+        case "video": {
           try {
             const formData = new FormData()
             formData.append("file", file)
             formData.append(
               "options",
-              JSON.stringify({
-                audio: true,
-                video: true,
-                text: true,
-                metadata: true,
-                script: true,
-              }),
+              JSON.stringify({ audio: true, video: true, text: true, metadata: true, script: true }),
             )
-
-            const response = await fetch("/api/process", {
-              method: "POST",
-              body: formData,
-            })
+            const response = await fetch("/api/process", { method: "POST", body: formData })
 
             if (response.ok) {
               const result = await response.json()
-              console.log("[v0] Video processing result:", result)
-
               return {
                 videoUrl: fileUrl,
                 audioUrl: fileUrl,
                 text:
                   result.extractedText ||
                   result.transcript ||
-                  `Video processing completed for ${file.name}.\n\nExtracted content:\n- Duration: ${result.duration || "Unknown"}\n- Speakers: ${result.speakers?.length || 0}\n- Transcript: ${result.transcript ? "Available" : "Processing required"}\n\nFor full speech-to-text extraction, ensure AssemblyAI API key is configured.`,
+                  `Video processing completed for ${file.name}.\n\nExtracted content:\n- Duration: ${result.duration || "Unknown"}\n- Speakers: ${result.speakers?.length || 0}\n- Transcript: ${result.transcript ? "Available" : "Processing required"}`,
                 transcript: result.transcript,
               }
-            } else {
-              console.log("[v0] API processing failed, using fallback")
-              throw new Error(`API processing failed: ${response.status}`)
             }
+            throw new Error(`API processing failed: ${response.status}`)
           } catch (apiError) {
-            console.log("[v0] API error:", apiError)
             return {
               videoUrl: fileUrl,
               audioUrl: fileUrl,
-              text: `Video File: ${file.name}\n\nAPI Processing Status: ${apiError instanceof Error ? apiError.message : "Failed"}\n\nTo extract text content from this video:\n\n1. ✅ Video preview available\n2. ⚠️ Speech-to-text processing requires AssemblyAI API key\n3. ⚠️ Audio extraction requires server-side processing\n4. ⚠️ OCR for video text requires additional configuration\n\nNext steps:\n- Configure ASSEMBLYAI_API_KEY in environment variables\n- For immediate results: Extract audio as MP3/WAV and upload separately\n- Enable video processing services for full automation`,
+              text: `Video File: ${file.name}\n\nAPI Processing Status: ${
+                apiError instanceof Error ? apiError.message : "Failed"
+              }\n\nNext steps:\n- Configure ASSEMBLYAI_API_KEY for speech-to-text.\n- Extract audio locally and upload if needed.`,
             }
           }
+        }
 
-        case "audio":
-          console.log("[v0] Processing audio file")
-
+        case "audio": {
           try {
             const formData = new FormData()
             formData.append("file", file)
             formData.append(
               "options",
-              JSON.stringify({
-                audio: true,
-                text: true,
-                metadata: true,
-                script: true,
-              }),
+              JSON.stringify({ audio: true, text: true, metadata: true, script: true }),
             )
-
-            const response = await fetch("/api/process", {
-              method: "POST",
-              body: formData,
-            })
+            const response = await fetch("/api/process", { method: "POST", body: formData })
 
             if (response.ok) {
               const result = await response.json()
-              console.log("[v0] Audio processing result:", result)
-
               return {
                 audioUrl: fileUrl,
                 text:
                   result.extractedText ||
                   result.transcript ||
-                  `Audio processing completed for ${file.name}.\n\nExtracted content:\n- Duration: ${result.duration || "Unknown"}\n- Speakers: ${result.speakers?.length || 0}\n- Transcript: ${result.transcript ? "Available" : "Processing in progress"}\n\nReal-time speech-to-text processing with speaker diarization.`,
+                  `Audio processing completed for ${file.name}.`,
                 transcript: result.transcript,
               }
-            } else {
-              throw new Error(`API processing failed: ${response.status}`)
             }
+            throw new Error(`API processing failed: ${response.status}`)
           } catch (apiError) {
-            console.log("[v0] Audio API error:", apiError)
             return {
               audioUrl: fileUrl,
-              text: `Audio File: ${file.name}\n\nProcessing Status: ${apiError instanceof Error ? apiError.message : "Failed"}\n\nTo extract text from this audio file:\n\n1. ✅ Audio preview available\n2. ⚠️ AssemblyAI API key required for speech-to-text\n3. ⚠️ Speaker diarization needs configuration\n\nConfigure ASSEMBLYAI_API_KEY in environment variables for real transcripts with speaker identification.`,
+              text: `Audio File: ${file.name}\n\nProcessing Status: ${
+                apiError instanceof Error ? apiError.message : "Failed"
+              }\n\nConfigure ASSEMBLYAI_API_KEY for transcripts with speaker diarization.`,
             }
           }
+        }
 
-        case "text":
-          console.log("[v0] Processing text file")
-
+        case "text": {
           if (file.type === "application/pdf") {
             try {
               const formData = new FormData()
               formData.append("file", file)
-              formData.append(
-                "options",
-                JSON.stringify({
-                  text: true,
-                  metadata: true,
-                }),
-              )
-
-              const response = await fetch("/api/process", {
-                method: "POST",
-                body: formData,
-              })
-
+              formData.append("options", JSON.stringify({ text: true, metadata: true }))
+              const response = await fetch("/api/process", { method: "POST", body: formData })
               if (response.ok) {
                 const result = await response.json()
                 return {
                   text:
                     result.extractedText ||
-                    `PDF processed: ${file.name}\n\nText extraction completed using AI analysis.\n\nContent analysis and structured data extraction available.`,
+                    `PDF processed: ${file.name}\n\nText extraction completed.`,
                 }
-              } else {
-                throw new Error(`PDF processing failed: ${response.status}`)
               }
+              throw new Error(`PDF processing failed: ${response.status}`)
             } catch (pdfError) {
-              console.log("[v0] PDF processing error:", pdfError)
               return {
-                text: `PDF Content from ${file.name}:\n\nProcessing Status: ${pdfError instanceof Error ? pdfError.message : "Failed"}\n\nFor full PDF text extraction, ensure Google API key is configured for AI-powered document analysis.`,
+                text: `PDF Content from ${file.name}:\n\nProcessing Status: ${
+                  pdfError instanceof Error ? pdfError.message : "Failed"
+                }`,
               }
             }
           } else {
             try {
               const extractedText = await file.text()
               if (!extractedText.trim()) {
-                return { text: `Text file ${file.name} appears to be empty or in an unsupported format.` }
+                return { text: `Text file ${file.name} appears to be empty or unsupported.` }
               }
               return { text: extractedText }
             } catch (error) {
-              console.log("[v0] Error reading text file:", error)
-              return { text: `Error reading ${file.name}. File may be corrupted or in an unsupported format.` }
+              return { text: `Error reading ${file.name}. File may be corrupted or unsupported.` }
             }
           }
-
-        default:
-          return {}
+        }
       }
     } catch (error) {
-      console.log("[v0] Processing error:", error)
       return {
         text: `Error processing ${file.name}: ${error instanceof Error ? error.message : "Unknown error"}`,
       }
@@ -211,10 +175,7 @@ export default function SimpleMediaExtractor() {
   }
 
   const downloadContent = (file: ProcessedFile, contentType: "video" | "audio" | "text") => {
-    console.log("[v0] Downloading content:", contentType, "for file:", file.name)
-
     const { extractedContent } = file
-
     try {
       switch (contentType) {
         case "video":
@@ -225,9 +186,6 @@ export default function SimpleMediaExtractor() {
             document.body.appendChild(link)
             link.click()
             document.body.removeChild(link)
-            console.log("[v0] Video download initiated")
-          } else {
-            console.log("[v0] No video URL available for download")
           }
           return
         case "audio":
@@ -238,12 +196,9 @@ export default function SimpleMediaExtractor() {
             document.body.appendChild(link)
             link.click()
             document.body.removeChild(link)
-            console.log("[v0] Audio download initiated")
-          } else {
-            console.log("[v0] No audio URL available for download")
           }
           return
-        case "text":
+        case "text": {
           const content = extractedContent.text || extractedContent.transcript || ""
           if (content) {
             const blob = new Blob([content], { type: "text/plain;charset=utf-8" })
@@ -255,11 +210,9 @@ export default function SimpleMediaExtractor() {
             link.click()
             document.body.removeChild(link)
             URL.revokeObjectURL(url)
-            console.log("[v0] Text download initiated")
-          } else {
-            console.log("[v0] No text content available for download")
           }
-          break
+          return
+        }
       }
     } catch (error) {
       console.log("[v0] Download error:", error)
@@ -286,12 +239,12 @@ export default function SimpleMediaExtractor() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <span className="text-lg">📁</span>
-            Upload Media Files
+            <FolderOpen className="w-5 h-5 text-primary" />
+            <span>Upload Media Files</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center">
+          <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-slate-400 transition-colors">
             <input
               type="file"
               multiple
@@ -302,11 +255,13 @@ export default function SimpleMediaExtractor() {
               disabled={processing}
             />
             <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center gap-2">
-              <span className="text-5xl text-slate-400">📤</span>
+              <UploadCloud className="w-10 h-10 text-slate-400" />
               <span className="text-lg font-medium text-slate-700">
                 {processing ? "Processing..." : "Click to upload files"}
               </span>
-              <span className="text-sm text-slate-500">Support for video, audio, PDF, and text files</span>
+              <span className="text-sm text-slate-500">
+                Support for video, audio, PDF, and text files
+              </span>
             </label>
           </div>
         </CardContent>
@@ -320,19 +275,20 @@ export default function SimpleMediaExtractor() {
             <Card key={file.id}>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  {file.type === "video" && <span className="text-lg">🎥</span>}
-                  {file.type === "audio" && <span className="text-lg">🎵</span>}
-                  {file.type === "text" && <span className="text-lg">📄</span>}
-                  {file.name}
+                  {file.type === "video" && <Video className="w-5 h-5 text-primary" />}
+                  {file.type === "audio" && <Music className="w-5 h-5 text-primary" />}
+                  {file.type === "text" && <FileText className="w-5 h-5 text-primary" />}
+                  <span className="truncate">{file.name}</span>
                 </CardTitle>
               </CardHeader>
+
               <CardContent className="space-y-4">
                 {file.type === "video" && file.extractedContent.videoUrl && (
                   <div>
                     <h4 className="font-medium mb-2">Video Preview</h4>
                     <video src={file.extractedContent.videoUrl} controls className="w-full max-w-md rounded-lg" />
                     <Button onClick={() => downloadContent(file, "video")} className="mt-2" size="sm">
-                      <span className="mr-2">⬇️</span>
+                      <Download className="w-4 h-4 mr-2" />
                       Download Video
                     </Button>
                   </div>
@@ -347,10 +303,14 @@ export default function SimpleMediaExtractor() {
                         variant="outline"
                         size="sm"
                       >
-                        {playingAudio === file.id ? <span>⏸️</span> : <span>▶️</span>}
+                        {playingAudio === file.id ? (
+                          <Pause className="w-4 h-4" />
+                        ) : (
+                          <Play className="w-4 h-4" />
+                        )}
                       </Button>
                       <Button onClick={() => downloadContent(file, "audio")} size="sm">
-                        <span className="mr-2">⬇️</span>
+                        <Download className="w-4 h-4 mr-2" />
                         Download Audio
                       </Button>
                     </div>
@@ -372,7 +332,7 @@ export default function SimpleMediaExtractor() {
                       </pre>
                     </div>
                     <Button onClick={() => downloadContent(file, "text")} className="mt-2" size="sm">
-                      <span className="mr-2">⬇️</span>
+                      <Download className="w-4 h-4 mr-2" />
                       Download Text
                     </Button>
                   </div>
