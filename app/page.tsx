@@ -9,7 +9,7 @@ export default function Home() {
       <Header />
       <main className="container mx-auto px-4 py-8">
         <div className="extraction-header mb-8 text-center text-black bg-black border-black border-solid font-sans rounded-4xl">
-          <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold font-serif mb-4 bg-gradient-to-r from-primary to-secondary bg-clip-text text-white">
+          <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold font-serif mb-4 bg-clip-text text-white">
             AI Media Extractor
           </h1>
           <p className="text-lg md:text-xl opacity-90 max-w-3xl mx-auto leading-relaxed">
