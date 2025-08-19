@@ -12,7 +12,7 @@ export function Header() {
               <Film className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h2 className="font-bold font-serif text-foreground text-left leading-5 text-2xl tracking-normal">
+              <h2 className="font-bold font-serif text-foreground text-left leading-5 tracking-normal text-3xl">
                 MediaExtract AI
               </h2>
               <span className="text-xs uppercase tracking-normal font-thin text-gray-600">
