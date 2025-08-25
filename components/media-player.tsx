@@ -22,14 +22,47 @@ export function MediaPlayer({ type, url, fileName, duration, onDownload }: Media
   const [volume, setVolume] = useState(100)
   const mediaRef = useRef<HTMLAudioElement | HTMLVideoElement>(null)
 
-  const togglePlay = () => {
+  const togglePlay = async () => {
     if (mediaRef.current) {
-      if (isPlaying) {
-        mediaRef.current.pause()
-      } else {
-        mediaRef.current.play()
+      try {
+        if (isPlaying) {
+          mediaRef.current.pause()
+          setIsPlaying(false)
+        } else {
+          // Check if media has a valid source before attempting to play
+          if (!mediaRef.current.src || mediaRef.current.src === "") {
+            console.error("[v0] Media element has no source URL")
+            return
+          }
+
+          // Wait for the media to be ready before playing
+          if (mediaRef.current.readyState < 2) {
+            await new Promise((resolve, reject) => {
+              const handleCanPlay = () => {
+                mediaRef.current?.removeEventListener("canplay", handleCanPlay)
+                mediaRef.current?.removeEventListener("error", handleError)
+                resolve(void 0)
+              }
+
+              const handleError = () => {
+                mediaRef.current?.removeEventListener("canplay", handleCanPlay)
+                mediaRef.current?.removeEventListener("error", handleError)
+                reject(new Error("Media failed to load"))
+              }
+
+              mediaRef.current?.addEventListener("canplay", handleCanPlay)
+              mediaRef.current?.addEventListener("error", handleError)
+            })
+          }
+
+          await mediaRef.current.play()
+          setIsPlaying(true)
+        }
+      } catch (error) {
+        console.error("[v0] Media playback error:", error)
+        // Reset playing state if play failed
+        setIsPlaying(false)
       }
-      setIsPlaying(!isPlaying)
     }
   }
 
@@ -76,6 +109,13 @@ export function MediaPlayer({ type, url, fileName, duration, onDownload }: Media
                 setCurrentTime(0)
               }
             }}
+            onError={(e) => {
+              console.error("[v0] Video loading error:", e)
+              setIsPlaying(false)
+            }}
+            onLoadStart={() => {
+              console.log("[v0] Video loading started")
+            }}
           />
         ) : (
           <audio
@@ -86,6 +126,13 @@ export function MediaPlayer({ type, url, fileName, duration, onDownload }: Media
               if (mediaRef.current) {
                 setCurrentTime(0)
               }
+            }}
+            onError={(e) => {
+              console.error("[v0] Audio loading error:", e)
+              setIsPlaying(false)
+            }}
+            onLoadStart={() => {
+              console.log("[v0] Audio loading started")
             }}
           />
         )}

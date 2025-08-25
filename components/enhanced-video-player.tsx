@@ -59,12 +59,68 @@ export function EnhancedVideoPlayer({
     }
   }, [])
 
-  const togglePlay = () => {
+  const togglePlay = async () => {
     if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause()
-      } else {
-        videoRef.current.play()
+      try {
+        if (isPlaying) {
+          videoRef.current.pause()
+        } else {
+          if (!videoRef.current.src || videoRef.current.src === "") {
+            console.error("[v0] Video element has no source URL")
+            return
+          }
+
+          if (videoRef.current.src.includes("/placeholder.")) {
+            console.error("[v0] Video element has placeholder source URL:", videoRef.current.src)
+            console.error("[v0] Error: Attempting to play placeholder URL - video processing may not be complete")
+            return
+          }
+
+          if (videoRef.current.src.startsWith("data:")) {
+            if (!videoRef.current.src.includes("base64,")) {
+              console.error("[v0] Invalid data URL format:", videoRef.current.src.substring(0, 100) + "...")
+              return
+            }
+          }
+
+          // Wait for the video to be ready before playing
+          if (videoRef.current.readyState < 2) {
+            console.log("[v0] Video not ready, waiting for canplay event...")
+            await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                videoRef.current?.removeEventListener("canplay", handleCanPlay)
+                videoRef.current?.removeEventListener("error", handleError)
+                reject(new Error("Video loading timeout"))
+              }, 10000) // 10 second timeout
+
+              const handleCanPlay = () => {
+                clearTimeout(timeout)
+                videoRef.current?.removeEventListener("canplay", handleCanPlay)
+                videoRef.current?.removeEventListener("error", handleError)
+                console.log("[v0] Video is ready to play")
+                resolve(void 0)
+              }
+
+              const handleError = () => {
+                clearTimeout(timeout)
+                videoRef.current?.removeEventListener("canplay", handleCanPlay)
+                videoRef.current?.removeEventListener("error", handleError)
+                reject(new Error("Video failed to load"))
+              }
+
+              videoRef.current?.addEventListener("canplay", handleCanPlay)
+              videoRef.current?.addEventListener("error", handleError)
+            })
+          }
+
+          console.log("[v0] Attempting to play video...")
+          await videoRef.current.play()
+          console.log("[v0] Video playback started successfully")
+        }
+      } catch (error) {
+        console.error("[v0] Video playback error:", error)
+        // Reset playing state if play failed
+        setIsPlaying(false)
       }
     }
   }
@@ -160,6 +216,47 @@ export function EnhancedVideoPlayer({
             poster={thumbnailUrl}
             className="w-full aspect-video"
             onClick={togglePlay}
+            onError={(e) => {
+              const target = e.target as HTMLVideoElement
+              const error = target.error
+              if (error) {
+                console.error("[v0] Video loading error:", {
+                  code: error.code,
+                  message: error.message,
+                  MEDIA_ERR_ABORTED: error.code === 1,
+                  MEDIA_ERR_NETWORK: error.code === 2,
+                  MEDIA_ERR_DECODE: error.code === 3,
+                  MEDIA_ERR_SRC_NOT_SUPPORTED: error.code === 4,
+                })
+                console.error("[v0] Video source:", videoUrl)
+                console.error("[v0] Video readyState:", target.readyState)
+                console.error("[v0] Video networkState:", target.networkState)
+
+                if (videoUrl.includes("/placeholder.")) {
+                  console.error("[v0] Error: Attempting to play placeholder URL - video processing may not be complete")
+                }
+              } else {
+                console.error("[v0] Video loading error: Unknown error occurred")
+              }
+              setIsPlaying(false)
+            }}
+            onLoadStart={() => {
+              console.log("[v0] Video loading started")
+              if (videoRef.current) {
+                console.log(
+                  "[v0] Video source:",
+                  videoRef.current.src.substring(0, 100) + (videoRef.current.src.length > 100 ? "..." : ""),
+                )
+                console.log("[v0] Video readyState:", videoRef.current.readyState)
+                console.log("[v0] Video networkState:", videoRef.current.networkState)
+              }
+            }}
+            onCanPlay={() => {
+              console.log("[v0] Video can play - ready for playback")
+            }}
+            onLoadedData={() => {
+              console.log("[v0] Video data loaded successfully")
+            }}
           />
 
           <div

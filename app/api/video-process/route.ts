@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
+import { fileCache } from "@/lib/file-cache"
+import { extractAudioFromVideo } from "@/lib/audio-extraction"
 
 interface VideoProcessRequest {
   source: "youtube" | "upload"
@@ -61,13 +63,13 @@ async function processVideo(
   console.log(`[v0] Processing video with options:`, options)
 
   // Simulate processing time
-  await new Promise((resolve) => setTimeout(resolve, 3000))
+  await new Promise((resolve) => setTimeout(resolve, 1000))
 
   const videoId = `processed-${Date.now()}`
   const targetFormat = options.targetFormat || "mp4"
 
   const results: any = {
-    videoUrl: `/placeholder.${targetFormat}?width=1920&height=1080&duration=323&title=Processed Video`,
+    videoUrl: source.startsWith("data:") ? source : `/api/video-file/${videoId}.${targetFormat}`,
   }
 
   if (options.generateThumbnail) {
@@ -76,8 +78,20 @@ async function processVideo(
   }
 
   if (options.extractAudio) {
-    results.audioUrl = `/placeholder.mp3?duration=323&title=Extracted Audio&bitrate=192000`
-    console.log(`[v0] Extracted audio for video ${videoId}`)
+    if (source.startsWith("data:")) {
+      try {
+        console.log("[v0] Extracting audio from video data URL")
+        results.audioUrl = await extractAudioFromVideo(source)
+        console.log(`[v0] Successfully extracted audio for video ${videoId}`)
+      } catch (error) {
+        console.error("[v0] Audio extraction failed:", error)
+        // Fallback to placeholder
+        results.audioUrl = `/api/placeholder-audio/${videoId}.mp3`
+      }
+    } else {
+      results.audioUrl = `/api/audio-file/${videoId}.mp3`
+    }
+    console.log(`[v0] Audio extraction completed for video ${videoId}`)
   }
 
   return results
@@ -126,8 +140,11 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      const cachedFileId = fileCache.store(fileName, fileType, fileData)
+      console.log(`[v0] File cached with ID: ${cachedFileId}`)
+
       videoSource = `data:${fileType};base64,${fileData}`
-      videoId = `upload-${Date.now()}`
+      videoId = cachedFileId
       console.log(`[v0] Processing uploaded video: ${fileName}`)
     } else {
       return NextResponse.json({ success: false, error: "Invalid source type" }, { status: 400 })

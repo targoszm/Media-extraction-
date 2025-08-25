@@ -5,12 +5,13 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { FolderOpen, UploadCloud, Video, Music, FileText, Download, Play, Link, X } from "lucide-react"
+import { FolderOpen, UploadCloud, Video, Music, FileText, Download, Play, Link, X, Presentation } from "lucide-react"
 import { YouTubeMediaPlayer } from "./youtube-media-player"
 import { EnhancedVideoPlayer } from "./enhanced-video-player"
 import { WaveformAudioPlayer } from "./waveform-audio-player"
 import { DownloadManager } from "./download-manager"
 import { BatchDownload } from "./batch-download"
+import { SlideExtractor } from "./slide-extractor"
 import { isYouTubeUrl } from "@/lib/youtube-utils"
 
 interface ProcessedFile {
@@ -19,6 +20,7 @@ interface ProcessedFile {
   type: "video" | "audio" | "text"
   originalFile?: File
   url?: string
+  cachedFileId?: string // Added cached file ID for file caching system
   extractedContent: {
     videoUrl?: string
     audioUrl?: string
@@ -27,6 +29,12 @@ interface ProcessedFile {
     waveformData?: number[]
     thumbnailUrl?: string
     metadata?: any
+    slides?: Array<{
+      id: string
+      imageUrl: string
+      timestamp: number
+      title?: string
+    }>
   }
 }
 
@@ -37,6 +45,86 @@ export default function SimpleMediaExtractor() {
   const [showUrlInput, setShowUrlInput] = useState(true)
   const [activeTab, setActiveTab] = useState("upload")
 
+  const checkFileCache = async (file: File): Promise<string | null> => {
+    try {
+      const fileData = await fileToBase64(file)
+      const response = await fetch("/api/file-cache", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileType: file.type,
+          data: fileData,
+        }),
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success) {
+          console.log(`[v0] File cached: ${file.name} (${result.fileId})`)
+          return result.fileId
+        }
+      }
+    } catch (error) {
+      console.log("[v0] File caching failed:", error)
+    }
+    return null
+  }
+
+  const getCachedFile = async (cachedFileId: string) => {
+    try {
+      const response = await fetch(`/api/file-cache?fileId=${cachedFileId}`)
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success) {
+          console.log(`[v0] Retrieved cached file: ${result.file.fileName}`)
+          return result.file
+        }
+      }
+    } catch (error) {
+      console.log("[v0] Failed to retrieve cached file:", error)
+    }
+    return null
+  }
+
+  const extractSlides = async (file: ProcessedFile) => {
+    if (!file.extractedContent.videoUrl && !file.url) return
+
+    setProcessing(true)
+    try {
+      const response = await fetch("/api/slide-extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          videoUrl: file.extractedContent.videoUrl || file.url,
+          fileName: file.name,
+          fileId: file.id,
+          options: {
+            threshold: 0.1,
+            minInterval: 2,
+            maxSlides: 50,
+          },
+        }),
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success) {
+          // Update the file with extracted slides
+          setFiles((prev) =>
+            prev.map((f) =>
+              f.id === file.id ? { ...f, extractedContent: { ...f.extractedContent, slides: result.slides } } : f,
+            ),
+          )
+        }
+      }
+    } catch (error) {
+      console.log("[v0] Slide extraction error:", error)
+    } finally {
+      setProcessing(false)
+    }
+  }
+
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFiles = Array.from(event.target.files || [])
     if (uploadedFiles.length === 0) return
@@ -45,12 +133,31 @@ export default function SimpleMediaExtractor() {
 
     for (const file of uploadedFiles) {
       const fileType = getFileType(file)
+
+      const cachedFileId = await checkFileCache(file)
+
+      let extractedContent
+      if (cachedFileId) {
+        // Try to use cached processing results
+        const cachedFile = await getCachedFile(cachedFileId)
+        if (cachedFile) {
+          console.log(`[v0] Using cached file data for: ${file.name}`)
+          // For cached files, we still need to process them but can skip some steps
+          extractedContent = await processFile(file, fileType, cachedFileId)
+        } else {
+          extractedContent = await processFile(file, fileType)
+        }
+      } else {
+        extractedContent = await processFile(file, fileType)
+      }
+
       const processedFile: ProcessedFile = {
         id: Math.random().toString(36).substr(2, 9),
         name: file.name,
         type: fileType,
         originalFile: file,
-        extractedContent: await processFile(file, fileType),
+        cachedFileId, // Store cached file ID
+        extractedContent,
       }
       setFiles((prev) => [...prev, processedFile])
     }
@@ -177,22 +284,25 @@ export default function SimpleMediaExtractor() {
     return "text"
   }
 
-  const processFile = async (file: File, type: "video" | "audio" | "text") => {
+  const processFile = async (file: File, type: "video" | "audio" | "text", cachedFileId?: string) => {
     const fileUrl = URL.createObjectURL(file)
 
     try {
       switch (type) {
         case "video": {
           try {
+            const fileData = cachedFileId ? null : await fileToBase64(file)
+
             // Use new video processing API
             const videoResponse = await fetch("/api/video-process", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 source: "upload",
-                fileData: await fileToBase64(file),
+                fileData: fileData || (await fileToBase64(file)), // Fallback to fresh data if needed
                 fileName: file.name,
                 fileType: file.type,
+                cachedFileId, // Pass cached file ID to API
                 options: {
                   extractAudio: true,
                   generateThumbnail: true,
@@ -208,7 +318,7 @@ export default function SimpleMediaExtractor() {
                   videoUrl: videoData.videoUrl,
                   audioUrl: videoData.audioUrl,
                   thumbnailUrl: videoData.thumbnailUrl,
-                  text: `Video processing completed for ${file.name}.\n\nDuration: ${videoData.metadata.duration}s\nResolution: ${videoData.metadata.width}x${videoData.metadata.height}\nFormat: ${videoData.metadata.format}`,
+                  text: `Video processing completed for ${file.name}.\n\nDuration: ${videoData.metadata.duration}s\nResolution: ${videoData.metadata.width}x${videoData.metadata.height}\nFormat: ${videoData.metadata.format}${cachedFileId ? "\n\nNote: Used cached file data for faster processing." : ""}`,
                   metadata: videoData.metadata,
                 }
               }
@@ -242,14 +352,49 @@ export default function SimpleMediaExtractor() {
               audioUrl: fileUrl,
               text: `Video File: ${file.name}\n\nAPI Processing Status: ${
                 apiError instanceof Error ? apiError.message : "Failed"
-              }\n\nNext steps:\n- Configure ASSEMBLYAI_API_KEY for speech-to-text.\n- Extract audio locally and upload if needed.`,
+              }\n\nNext steps:\n- Configure ASSEMBLYAI_API_KEY for speech-to-text.\n- Extract audio locally and upload if needed.${cachedFileId ? "\n\nNote: File was cached for future use." : ""}`,
             }
           }
         }
 
         case "audio": {
           try {
-            // Use new audio extraction API
+            const audioData = cachedFileId ? null : await fileToBase64(file)
+
+            // Try new Google Speech API transcription first
+            const transcribeResponse = await fetch("/api/transcribe-audio", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                audioData: audioData || (await fileToBase64(file)), // Fallback to fresh data if needed
+                fileName: file.name,
+                fileType: file.type,
+                cachedFileId, // Pass cached file ID to API
+                options: {
+                  language: "en-US",
+                  splitOnSilence: true,
+                  chunkDuration: 30,
+                },
+              }),
+            })
+
+            if (transcribeResponse.ok) {
+              const transcribeData = await transcribeResponse.json()
+              if (transcribeData.success) {
+                return {
+                  audioUrl: fileUrl,
+                  text: `Audio transcription completed for ${file.name}.\n\nTranscription:\n${transcribeData.transcription}\n\nProcessing time: ${transcribeData.processingTime}\nWord count: ${transcribeData.wordCount}${cachedFileId ? "\n\nNote: Used cached file data for faster processing." : ""}`,
+                  transcript: transcribeData.transcription,
+                  metadata: {
+                    processingTime: transcribeData.processingTime,
+                    wordCount: transcribeData.wordCount,
+                    chunks: transcribeData.chunks,
+                  },
+                }
+              }
+            }
+
+            // Fallback to existing audio extraction API
             const audioResponse = await fetch("/api/audio-extract", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -294,7 +439,7 @@ export default function SimpleMediaExtractor() {
               audioUrl: fileUrl,
               text: `Audio File: ${file.name}\n\nProcessing Status: ${
                 apiError instanceof Error ? apiError.message : "Failed"
-              }\n\nConfigure ASSEMBLYAI_API_KEY for transcripts with speaker diarization.`,
+              }\n\nConfigure ASSEMBLYAI_API_KEY for transcripts with speaker diarization.${cachedFileId ? "\n\nNote: File was cached for future use." : ""}`,
             }
           }
         }
@@ -335,7 +480,7 @@ export default function SimpleMediaExtractor() {
       }
     } catch (error) {
       return {
-        text: `Error processing ${file.name}: ${error instanceof Error ? error.message : "Unknown error"}`,
+        text: `Error processing ${file.name}: ${error instanceof Error ? error.message : "Unknown error"}${cachedFileId ? "\n\nNote: File was cached for future use." : ""}`,
       }
     }
   }
@@ -361,22 +506,10 @@ export default function SimpleMediaExtractor() {
 
       switch (contentType) {
         case "video":
-          if (file.url && file.url.includes("youtube")) {
-            alert(
-              "YouTube video download is not available. The video content remains on YouTube's servers. You can download the extracted transcript instead.",
-            )
-            return
-          }
           fileUrl = extractedContent.videoUrl
           fileName = `${file.name.split(".")[0]}_video.mp4`
           break
         case "audio":
-          if (file.url && file.url.includes("youtube")) {
-            alert(
-              "YouTube audio download is not available. The audio content remains on YouTube's servers. You can download the extracted transcript instead.",
-            )
-            return
-          }
           fileUrl = extractedContent.audioUrl
           fileName = `${file.name.split(".")[0]}_audio.mp3`
           break
@@ -393,7 +526,17 @@ export default function SimpleMediaExtractor() {
       }
 
       if (fileUrl) {
-        // Use new download manager
+        if (fileUrl.includes("/placeholder.")) {
+          const link = document.createElement("a")
+          link.href = fileUrl
+          link.download = fileName
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+          return
+        }
+
+        // Use download manager for other files
         const response = await fetch("/api/download-manager", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -429,12 +572,125 @@ export default function SimpleMediaExtractor() {
       .filter((file) => file.fileUrl)
   }
 
+  const extractTextFromAudio = async (file: ProcessedFile) => {
+    if (!file.extractedContent.audioUrl && !file.url && !file.originalFile) return
+
+    setProcessing(true)
+    try {
+      let audioData: string
+
+      if (file.type === "video" && file.extractedContent.audioUrl) {
+        try {
+          // Check if the audio URL is a valid audio data URL
+          if (file.extractedContent.audioUrl.startsWith("data:audio/")) {
+            // Extract base64 data from the audio data URL
+            audioData = file.extractedContent.audioUrl.split(",")[1]
+            console.log("[v0] Using extracted MP3 audio data URL for transcription")
+          } else {
+            // Try to fetch the audio URL
+            const response = await fetch(file.extractedContent.audioUrl)
+            const blob = await response.blob()
+            audioData = await new Promise((resolve) => {
+              const reader = new FileReader()
+              reader.onload = () => resolve((reader.result as string).split(",")[1])
+              reader.readAsDataURL(blob)
+            })
+            console.log("[v0] Using extracted MP3 audio from URL for transcription:", file.extractedContent.audioUrl)
+          }
+        } catch (fetchError) {
+          console.log("[v0] Failed to use extracted MP3, falling back to cached file or original:", fetchError)
+          if (file.cachedFileId) {
+            const cachedFile = await getCachedFile(file.cachedFileId)
+            if (cachedFile) {
+              audioData = cachedFile.data
+              console.log("[v0] Using cached file data for transcription")
+            } else if (file.originalFile) {
+              audioData = await fileToBase64(file.originalFile)
+            } else {
+              throw new Error("No audio source available for transcription")
+            }
+          } else if (file.originalFile) {
+            audioData = await fileToBase64(file.originalFile)
+          } else {
+            throw new Error("No audio source available for transcription")
+          }
+        }
+      } else if (file.cachedFileId) {
+        const cachedFile = await getCachedFile(file.cachedFileId)
+        if (cachedFile) {
+          audioData = cachedFile.data
+          console.log("[v0] Using cached file data for transcription")
+        } else if (file.originalFile) {
+          audioData = await fileToBase64(file.originalFile)
+        } else {
+          throw new Error("No audio source available for transcription")
+        }
+      } else if (file.originalFile) {
+        audioData = await fileToBase64(file.originalFile)
+      } else {
+        // For URL-based files, we'll need to fetch the audio data
+        const response = await fetch(file.extractedContent.audioUrl || file.url!)
+        const blob = await response.blob()
+        audioData = await new Promise((resolve) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve((reader.result as string).split(",")[1])
+          reader.readAsDataURL(blob)
+        })
+      }
+
+      const transcribeResponse = await fetch("/api/transcribe-audio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          audioData,
+          fileName: file.name,
+          fileType:
+            file.type === "video" && file.extractedContent.audioUrl
+              ? "audio/mp3"
+              : file.originalFile?.type || "audio/mp3",
+          options: {
+            language: "en-US",
+            splitOnSilence: true,
+            chunkDuration: 30,
+          },
+        }),
+      })
+
+      if (transcribeResponse.ok) {
+        const transcribeData = await transcribeResponse.json()
+        if (transcribeData.success) {
+          // Update the file with transcription
+          setFiles((prev) =>
+            prev.map((f) =>
+              f.id === file.id
+                ? {
+                    ...f,
+                    extractedContent: {
+                      ...f.extractedContent,
+                      transcript: transcribeData.transcription,
+                      text: `Audio transcription completed for ${file.name}.\n\nTranscription:\n${transcribeData.transcription}\n\nProcessing time: ${transcribeData.processingTime}\nWord count: ${transcribeData.wordCount}${file.cachedFileId ? "\n\nNote: Used cached file data for faster processing." : ""}`,
+                    },
+                  }
+                : f,
+            ),
+          )
+        }
+      }
+    } catch (error) {
+      console.log("[v0] Audio transcription error:", error)
+    } finally {
+      setProcessing(false)
+    }
+  }
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="upload">Upload</TabsTrigger>
           <TabsTrigger value="results">Results ({files.length})</TabsTrigger>
+          <TabsTrigger value="transcription">Transcription</TabsTrigger>
+          <TabsTrigger value="slides">Slides</TabsTrigger>
           <TabsTrigger value="downloads">Downloads</TabsTrigger>
           <TabsTrigger value="batch">Batch</TabsTrigger>
         </TabsList>
@@ -549,6 +805,20 @@ export default function SimpleMediaExtractor() {
                     />
                   )}
 
+                  {file.type === "video" && (
+                    <div className="flex gap-2">
+                      <Button onClick={() => extractSlides(file)} disabled={processing} variant="outline" size="sm">
+                        <Presentation className="w-4 h-4 mr-2" />
+                        Extract Slides
+                      </Button>
+                      {file.extractedContent.slides && (
+                        <span className="text-sm text-slate-600 flex items-center">
+                          {file.extractedContent.slides.length} slides extracted
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   {(file.extractedContent.text || file.extractedContent.transcript) && (
                     <div>
                       <h4 className="font-medium mb-2">Text Content</h4>
@@ -567,6 +837,95 @@ export default function SimpleMediaExtractor() {
               </Card>
             ))
           )}
+        </TabsContent>
+
+        <TabsContent value="transcription" className="space-y-4">
+          {files.filter((f) => f.type === "audio" || (f.type === "video" && f.extractedContent.audioUrl)).length ===
+          0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <Music className="w-16 h-16 mx-auto mb-4 opacity-50" />
+              <p className="text-lg">No audio files available for transcription</p>
+              <p className="text-sm">Upload audio or video files to extract text from speech</p>
+            </div>
+          ) : (
+            files
+              .filter((f) => f.type === "audio" || (f.type === "video" && f.extractedContent.audioUrl))
+              .map((file) => (
+                <Card key={file.id}>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Music className="w-5 h-5 text-primary" />
+                      <span className="truncate">{file.name}</span>
+                      {file.extractedContent.transcript && (
+                        <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">Transcribed</span>
+                      )}
+                    </CardTitle>
+                  </CardHeader>
+
+                  <CardContent className="space-y-4">
+                    {/* Audio Player */}
+                    {file.extractedContent.audioUrl && (
+                      <WaveformAudioPlayer
+                        audioUrl={file.extractedContent.audioUrl}
+                        title={file.name}
+                        waveformData={file.extractedContent.waveformData}
+                        onDownload={() => downloadContent(file, "audio")}
+                      />
+                    )}
+
+                    {/* Transcription Controls */}
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => extractTextFromAudio(file)}
+                        disabled={processing}
+                        variant="outline"
+                        size="sm"
+                      >
+                        <FileText className="w-4 h-4 mr-2" />
+                        {file.extractedContent.transcript ? "Re-transcribe Audio" : "Extract Text from Audio"}
+                      </Button>
+                      {file.extractedContent.transcript && (
+                        <Button onClick={() => downloadContent(file, "text")} size="sm">
+                          <Download className="w-4 h-4 mr-2" />
+                          Download Transcript
+                        </Button>
+                      )}
+                    </div>
+
+                    {/* Transcription Results */}
+                    {file.extractedContent.transcript && (
+                      <div>
+                        <h4 className="font-medium mb-2">Transcription</h4>
+                        <div className="bg-slate-50 p-4 rounded-lg max-h-60 overflow-y-auto">
+                          <pre className="whitespace-pre-wrap text-sm text-slate-700">
+                            {file.extractedContent.transcript}
+                          </pre>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Metadata */}
+                    {file.extractedContent.metadata && (
+                      <div className="text-xs text-slate-500 space-y-1">
+                        {file.extractedContent.metadata.processingTime && (
+                          <p>Processing time: {file.extractedContent.metadata.processingTime}</p>
+                        )}
+                        {file.extractedContent.metadata.wordCount && (
+                          <p>Word count: {file.extractedContent.metadata.wordCount}</p>
+                        )}
+                        {file.extractedContent.metadata.duration && (
+                          <p>Duration: {file.extractedContent.metadata.duration}s</p>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))
+          )}
+        </TabsContent>
+
+        <TabsContent value="slides">
+          <SlideExtractor files={files.filter((f) => f.type === "video")} />
         </TabsContent>
 
         <TabsContent value="downloads">
