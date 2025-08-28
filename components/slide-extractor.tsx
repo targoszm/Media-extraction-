@@ -51,16 +51,118 @@ export function SlideExtractor({ files }: SlideExtractorProps) {
 
     console.log("[v0] Starting client-side frame extraction with threshold:", correlationThreshold)
 
+    if (!videoUrl || typeof videoUrl !== "string") {
+      console.error("[v0] Invalid video URL provided:", videoUrl)
+      throw new Error("Invalid video URL provided for frame extraction")
+    }
+
+    // Check for placeholder URLs that would cause NotSupportedError
+    if (videoUrl.includes("/placeholder.") || videoUrl.includes("placeholder.svg")) {
+      console.error("[v0] Placeholder URL detected:", videoUrl)
+      throw new Error("Cannot extract frames from placeholder URL - video processing may not be complete")
+    }
+
+    // Validate data URL format
+    if (videoUrl.startsWith("data:")) {
+      if (!videoUrl.includes("video/") || !videoUrl.includes("base64,")) {
+        console.error("[v0] Invalid video data URL format:", videoUrl.substring(0, 100))
+        throw new Error("Invalid video data URL format - missing video MIME type or base64 data")
+      }
+
+      // Check if base64 data exists and is not empty
+      const base64Data = videoUrl.split("base64,")[1]
+      if (!base64Data || base64Data.length < 100) {
+        console.error("[v0] Video data URL has insufficient data")
+        throw new Error("Video data URL contains insufficient data")
+      }
+    } else if (!videoUrl.startsWith("http://") && !videoUrl.startsWith("https://") && !videoUrl.startsWith("/")) {
+      console.error("[v0] Invalid video URL format:", videoUrl)
+      throw new Error("Invalid video URL format - must be data URL, HTTP(S) URL, or relative path")
+    }
+
     try {
-      // Create video element
+      // Create video element with enhanced error handling
       const video = document.createElement("video")
-      video.src = videoUrl
       video.crossOrigin = "anonymous"
       video.muted = true
+      video.preload = "metadata"
+
+      video.onerror = (error) => {
+        console.error("[v0] Video element error:", error)
+        const target = error.target as HTMLVideoElement
+        if (target && target.error) {
+          const errorCode = target.error.code
+          const errorMessages = {
+            1: "Video loading aborted by user",
+            2: "Network error occurred while loading video",
+            3: "Video decoding error - file may be corrupted",
+            4: "Video format not supported or source not found",
+          }
+          console.error(
+            "[v0] Video error code:",
+            errorCode,
+            "-",
+            errorMessages[errorCode as keyof typeof errorMessages] || "Unknown error",
+          )
+        }
+      }
+
+      video.src = videoUrl
 
       await new Promise((resolve, reject) => {
-        video.onloadedmetadata = resolve
-        video.onerror = reject
+        const timeoutId = setTimeout(() => {
+          reject(new Error("Video loading timeout - source may be invalid, inaccessible, or too large"))
+        }, 15000) // Increased timeout to 15 seconds
+
+        video.onloadedmetadata = () => {
+          clearTimeout(timeoutId)
+
+          if (video.videoWidth === 0 || video.videoHeight === 0) {
+            reject(new Error("Video has invalid dimensions (0x0) - source may be corrupted or not a valid video"))
+            return
+          }
+          if (video.duration === 0 || isNaN(video.duration) || !isFinite(video.duration)) {
+            reject(new Error("Video has invalid duration - source may be corrupted or not a valid video"))
+            return
+          }
+          if (video.readyState < 1) {
+            reject(new Error("Video metadata not properly loaded - source may be invalid"))
+            return
+          }
+
+          console.log(
+            "[v0] Video loaded successfully - dimensions:",
+            video.videoWidth,
+            "x",
+            video.videoHeight,
+            "duration:",
+            video.duration,
+            "readyState:",
+            video.readyState,
+          )
+          resolve(undefined)
+        }
+
+        video.onerror = (error) => {
+          clearTimeout(timeoutId)
+          console.error("[v0] Video loading error:", error)
+
+          if (videoUrl.startsWith("data:")) {
+            reject(new Error("Failed to load video from data URL - data may be corrupted or invalid format"))
+          } else {
+            reject(
+              new Error("Failed to load video from URL - source may be invalid, inaccessible, or unsupported format"),
+            )
+          }
+        }
+
+        video.onemptied = () => {
+          clearTimeout(timeoutId)
+          reject(
+            new Error("Video element has no supported sources - the provided URL may not contain valid video data"),
+          )
+        }
+
         video.load()
       })
 
@@ -85,77 +187,112 @@ export function SlideExtractor({ files }: SlideExtractorProps) {
       for (let time = 0; time < duration && slideCount < maxSlides; time += minInterval) {
         video.currentTime = time
 
-        await new Promise((resolve) => {
-          video.onseeked = resolve
+        await new Promise((resolve, reject) => {
+          const timeoutId = setTimeout(() => {
+            reject(new Error(`Video seeking timeout at ${time}s`))
+          }, 5000)
+
+          video.onseeked = () => {
+            clearTimeout(timeoutId)
+            resolve(undefined)
+          }
+
+          video.onerror = (error) => {
+            clearTimeout(timeoutId)
+            reject(new Error(`Video seeking error at ${time}s: ${error}`))
+          }
         })
 
         // Wait for frame to be ready
         await new Promise((resolve) => setTimeout(resolve, 100))
 
-        // Draw current frame to canvas
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-        const currentFrameData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-
-        // Calculate correlation with previous frame
-        let correlation = 1.0
-        if (previousFrameData) {
-          correlation = calculateFrameCorrelation(previousFrameData, currentFrameData)
+        if (video.readyState < 2) {
+          console.warn("[v0] Video not ready at", time, "s, skipping frame")
+          continue
         }
 
-        console.log("[v0] Frame correlation at", time, "s:", correlation.toFixed(3))
+        // Draw current frame to canvas
+        try {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+          const currentFrameData = ctx.getImageData(0, 0, canvas.width, canvas.height)
 
-        // Detect slide change
-        if (correlation < correlationThreshold) {
-          // Check for duplicates
-          let isDuplicate = false
-          for (const savedTime of savedSlideTimestamps) {
-            if (Math.abs(savedTime - time) < minInterval * 0.5) {
-              isDuplicate = true
-              console.log("[v0] Skipping duplicate slide at", time, "s (similarity:", correlation.toFixed(3), ")")
-              break
+          // Calculate correlation with previous frame
+          let correlation = 1.0
+          if (previousFrameData) {
+            correlation = calculateFrameCorrelation(previousFrameData, currentFrameData)
+          }
+
+          console.log("[v0] Frame correlation at", time, "s:", correlation.toFixed(3))
+
+          // Detect slide change
+          if (correlation < correlationThreshold) {
+            // Check for duplicates
+            let isDuplicate = false
+            for (const savedTime of savedSlideTimestamps) {
+              if (Math.abs(savedTime - time) < minInterval * 0.5) {
+                isDuplicate = true
+                console.log("[v0] Skipping duplicate slide at", time, "s (similarity:", correlation.toFixed(3), ")")
+                break
+              }
+            }
+
+            if (!isDuplicate) {
+              // Capture the frame as slide image
+              const slideImageUrl = canvas.toDataURL("image/png")
+
+              slides.push({
+                id: `slide-${fileId}-${slideCount}`,
+                imageUrl: slideImageUrl,
+                timestamp: time,
+                title: `Slide ${slideCount + 1}`,
+                correlation: correlation,
+              })
+
+              savedSlideTimestamps.push(time)
+              slideCount++
+              console.log("[v0] Slide detected at", time, "s (correlation:", correlation.toFixed(3), ")")
             }
           }
 
-          if (!isDuplicate) {
-            // Capture the frame as slide image
-            const slideImageUrl = canvas.toDataURL("image/png")
-
-            slides.push({
-              id: `slide-${fileId}-${slideCount}`,
-              imageUrl: slideImageUrl,
-              timestamp: time,
-              title: `Slide ${slideCount + 1}`,
-              correlation: correlation,
-            })
-
-            savedSlideTimestamps.push(time)
-            slideCount++
-            console.log("[v0] Slide detected at", time, "s (correlation:", correlation.toFixed(3), ")")
-          }
+          previousFrameData = currentFrameData
+        } catch (drawError) {
+          console.warn("[v0] Failed to draw frame at", time, "s:", drawError)
+          continue
         }
-
-        previousFrameData = currentFrameData
       }
 
       // Add final slide if needed
       if (slideCount < maxSlides && slideCount > 0) {
         video.currentTime = duration
-        await new Promise((resolve) => {
-          video.onseeked = resolve
+        await new Promise((resolve, reject) => {
+          const timeoutId = setTimeout(() => {
+            reject(new Error("Final frame seeking timeout"))
+          }, 5000)
+
+          video.onseeked = () => {
+            clearTimeout(timeoutId)
+            resolve(undefined)
+          }
         })
         await new Promise((resolve) => setTimeout(resolve, 100))
 
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-        const finalSlideUrl = canvas.toDataURL("image/png")
+        if (video.readyState >= 2) {
+          try {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+            const finalSlideUrl = canvas.toDataURL("image/png")
 
-        slides.push({
-          id: `slide-${fileId}-${slideCount}`,
-          imageUrl: finalSlideUrl,
-          timestamp: duration,
-          title: `Slide ${slideCount + 1}`,
-          correlation: 0,
-        })
-        console.log("[v0] Final slide saved at", duration, "s")
+            slides.push({
+              id: `slide-${fileId}-${slideCount}`,
+              imageUrl: finalSlideUrl,
+              timestamp: duration,
+              title: `Slide ${slideCount + 1}`,
+              correlation: 0,
+            })
+            console.log("[v0] Final slide saved at", duration, "s")
+          } catch (drawError) {
+            console.warn("[v0] Failed to draw final frame:", drawError)
+          }
+        }
       }
 
       return slides

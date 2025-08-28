@@ -75,6 +75,31 @@ async function extractSlidesWithClientSideProcessing(videoDataUrl: string, fileI
 
   console.log("[v0] Implementing slideextract correlation algorithm with threshold:", correlationThreshold)
 
+  if (!videoDataUrl || typeof videoDataUrl !== "string") {
+    console.error("[v0] Invalid video data URL provided:", videoDataUrl)
+    throw new Error("Invalid video data URL provided for slide extraction")
+  }
+
+  // Check for placeholder URLs
+  if (videoDataUrl.includes("/placeholder.") || videoDataUrl.includes("placeholder.svg")) {
+    console.error("[v0] Placeholder URL detected:", videoDataUrl)
+    throw new Error("Cannot extract slides from placeholder URL - video processing may not be complete")
+  }
+
+  // Validate data URL format
+  if (videoDataUrl.startsWith("data:")) {
+    if (!videoDataUrl.includes("video/") || !videoDataUrl.includes("base64,")) {
+      console.error("[v0] Invalid video data URL format:", videoDataUrl.substring(0, 100))
+      throw new Error("Invalid video data URL format - missing video MIME type or base64 data")
+    }
+
+    const base64Data = videoDataUrl.split("base64,")[1]
+    if (!base64Data || base64Data.length < 100) {
+      console.error("[v0] Video data URL has insufficient data")
+      throw new Error("Video data URL contains insufficient data")
+    }
+  }
+
   const videoMetadata = await extractVideoMetadata(videoDataUrl)
   const duration = videoMetadata.duration || 128.298
   const width = videoMetadata.width || 1280
@@ -83,14 +108,51 @@ async function extractSlidesWithClientSideProcessing(videoDataUrl: string, fileI
   console.log("[v0] Video loaded - duration:", duration, "dimensions:", width, "x", height)
 
   try {
-    // Create video element to extract frames
     const video = document.createElement("video")
-    video.src = videoDataUrl
     video.crossOrigin = "anonymous"
+    video.muted = true
+    video.preload = "metadata"
+
+    video.onerror = (error) => {
+      console.error("[v0] Video element error:", error)
+      const target = error.target as HTMLVideoElement
+      if (target && target.error) {
+        const errorCode = target.error.code
+        console.error("[v0] Video error code:", errorCode)
+      }
+    }
+
+    video.src = videoDataUrl
 
     await new Promise((resolve, reject) => {
-      video.onloadedmetadata = resolve
-      video.onerror = reject
+      const timeoutId = setTimeout(() => {
+        reject(new Error("Video loading timeout - data URL may be invalid or corrupted"))
+      }, 15000)
+
+      video.onloadedmetadata = () => {
+        clearTimeout(timeoutId)
+
+        if (video.videoWidth === 0 || video.videoHeight === 0) {
+          reject(new Error("Video has invalid dimensions - data may be corrupted"))
+          return
+        }
+        if (video.duration === 0 || isNaN(video.duration)) {
+          reject(new Error("Video has invalid duration - data may be corrupted"))
+          return
+        }
+
+        resolve(undefined)
+      }
+
+      video.onerror = (error) => {
+        clearTimeout(timeoutId)
+        reject(new Error("Failed to load video from data URL - data may be corrupted or invalid format"))
+      }
+
+      video.onemptied = () => {
+        clearTimeout(timeoutId)
+        reject(new Error("Video element has no supported sources - the data URL may not contain valid video data"))
+      }
     })
 
     const canvas = document.createElement("canvas")

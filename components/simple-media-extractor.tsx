@@ -1,11 +1,23 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { FolderOpen, UploadCloud, Video, Music, FileText, Download, Play, Link, X, Presentation } from "lucide-react"
+import {
+  FolderOpen,
+  UploadCloud,
+  Video,
+  Music,
+  FileText,
+  Download,
+  Play,
+  Link,
+  X,
+  Presentation,
+  AlertCircle,
+} from "lucide-react"
 import { YouTubeMediaPlayer } from "./youtube-media-player"
 import { EnhancedVideoPlayer } from "./enhanced-video-player"
 import { WaveformAudioPlayer } from "./waveform-audio-player"
@@ -38,12 +50,83 @@ interface ProcessedFile {
   }
 }
 
+interface UploadProgress {
+  fileName: string
+  progress: number
+  status: "uploading" | "processing" | "completed" | "error"
+  error?: string
+}
+
 export default function SimpleMediaExtractor() {
   const [files, setFiles] = useState<ProcessedFile[]>([])
   const [processing, setProcessing] = useState(false)
   const [urlInput, setUrlInput] = useState("")
   const [showUrlInput, setShowUrlInput] = useState(true)
   const [activeTab, setActiveTab] = useState("upload")
+
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress[]>([])
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const processingFilesRef = useRef<Set<string>>(new Set())
+
+  const validateFile = (file: File): { valid: boolean; error?: string } => {
+    const maxSize = 500 * 1024 * 1024 // 500MB
+    const supportedTypes = [
+      "video/",
+      "audio/",
+      "application/pdf",
+      "text/",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ]
+
+    if (file.size > maxSize) {
+      return {
+        valid: false,
+        error: `File "${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum size is 500MB.`,
+      }
+    }
+
+    const isSupported = supportedTypes.some((type) => file.type.startsWith(type))
+    if (!isSupported) {
+      return {
+        valid: false,
+        error: `File type "${file.type}" is not supported. Please upload video, audio, PDF, or text files.`,
+      }
+    }
+
+    return { valid: true }
+  }
+
+  const canStartUpload = (): boolean => {
+    return !processing && abortControllerRef.current === null
+  }
+
+  const cancelUpload = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+    setProcessing(false)
+    setUploadProgress([])
+    setUploadError(null)
+    processingFilesRef.current.clear()
+  }
+
+  const updateUploadProgress = (
+    fileName: string,
+    progress: number,
+    status: UploadProgress["status"],
+    error?: string,
+  ) => {
+    setUploadProgress((prev) => {
+      const existing = prev.find((p) => p.fileName === fileName)
+      if (existing) {
+        return prev.map((p) => (p.fileName === fileName ? { ...p, progress, status, error } : p))
+      }
+      return [...prev, { fileName, progress, status, error }]
+    })
+  }
 
   const checkFileCache = async (file: File): Promise<string | null> => {
     try {
@@ -129,41 +212,123 @@ export default function SimpleMediaExtractor() {
     const uploadedFiles = Array.from(event.target.files || [])
     if (uploadedFiles.length === 0) return
 
-    setProcessing(true)
+    // Clear previous errors
+    setUploadError(null)
+    setUploadProgress([])
 
-    for (const file of uploadedFiles) {
-      const fileType = getFileType(file)
-
-      const cachedFileId = await checkFileCache(file)
-
-      let extractedContent
-      if (cachedFileId) {
-        // Try to use cached processing results
-        const cachedFile = await getCachedFile(cachedFileId)
-        if (cachedFile) {
-          console.log(`[v0] Using cached file data for: ${file.name}`)
-          // For cached files, we still need to process them but can skip some steps
-          extractedContent = await processFile(file, fileType, cachedFileId)
-        } else {
-          extractedContent = await processFile(file, fileType)
-        }
-      } else {
-        extractedContent = await processFile(file, fileType)
-      }
-
-      const processedFile: ProcessedFile = {
-        id: Math.random().toString(36).substr(2, 9),
-        name: file.name,
-        type: fileType,
-        originalFile: file,
-        cachedFileId, // Store cached file ID
-        extractedContent,
-      }
-      setFiles((prev) => [...prev, processedFile])
+    // Check if upload can start
+    if (!canStartUpload()) {
+      setUploadError("Another upload is already in progress. Please wait or cancel the current upload.")
+      return
     }
 
-    setProcessing(false)
-    setActiveTab("results")
+    // Validate all files first
+    const validationErrors: string[] = []
+    for (const file of uploadedFiles) {
+      const validation = validateFile(file)
+      if (!validation.valid) {
+        validationErrors.push(validation.error!)
+      }
+    }
+
+    if (validationErrors.length > 0) {
+      setUploadError(validationErrors.join("\n"))
+      return
+    }
+
+    // Check for duplicate files
+    const duplicateFiles = uploadedFiles.filter((file) =>
+      processingFilesRef.current.has(`${file.name}-${file.size}-${file.lastModified}`),
+    )
+
+    if (duplicateFiles.length > 0) {
+      setUploadError(`The following files are already being processed: ${duplicateFiles.map((f) => f.name).join(", ")}`)
+      return
+    }
+
+    setProcessing(true)
+    abortControllerRef.current = new AbortController()
+
+    try {
+      for (const file of uploadedFiles) {
+        const fileKey = `${file.name}-${file.size}-${file.lastModified}`
+        processingFilesRef.current.add(fileKey)
+
+        // Check if upload was cancelled
+        if (abortControllerRef.current?.signal.aborted) {
+          break
+        }
+
+        updateUploadProgress(file.name, 10, "uploading")
+
+        try {
+          const fileType = getFileType(file)
+
+          updateUploadProgress(file.name, 30, "processing")
+
+          const cachedFileId = await checkFileCache(file)
+
+          updateUploadProgress(file.name, 50, "processing")
+
+          let extractedContent
+          if (cachedFileId) {
+            const cachedFile = await getCachedFile(cachedFileId)
+            if (cachedFile) {
+              console.log(`[v0] Using cached file data for: ${file.name}`)
+              extractedContent = await processFile(file, fileType, cachedFileId)
+            } else {
+              extractedContent = await processFile(file, fileType)
+            }
+          } else {
+            extractedContent = await processFile(file, fileType)
+          }
+
+          updateUploadProgress(file.name, 90, "processing")
+
+          const processedFile: ProcessedFile = {
+            id: Math.random().toString(36).substr(2, 9),
+            name: file.name,
+            type: fileType,
+            originalFile: file,
+            cachedFileId,
+            extractedContent,
+          }
+
+          setFiles((prev) => [...prev, processedFile])
+          updateUploadProgress(file.name, 100, "completed")
+        } catch (fileError) {
+          console.error(`[v0] Error processing file ${file.name}:`, fileError)
+          updateUploadProgress(
+            file.name,
+            0,
+            "error",
+            fileError instanceof Error ? fileError.message : "Processing failed",
+          )
+        } finally {
+          processingFilesRef.current.delete(fileKey)
+        }
+      }
+
+      // Check if all files completed successfully
+      const hasErrors = uploadProgress.some((p) => p.status === "error")
+      if (!hasErrors && !abortControllerRef.current?.signal.aborted) {
+        setActiveTab("results")
+      }
+    } catch (error) {
+      console.error("[v0] Upload error:", error)
+      setUploadError(error instanceof Error ? error.message : "Upload failed")
+    } finally {
+      setProcessing(false)
+      abortControllerRef.current = null
+
+      // Clear progress after a delay
+      setTimeout(() => {
+        setUploadProgress([])
+      }, 3000)
+    }
+
+    // Reset file input
+    event.target.value = ""
   }
 
   const handleUrlSubmit = async () => {
@@ -504,6 +669,13 @@ export default function SimpleMediaExtractor() {
       let fileName: string
       let fileSize = 5242880 // Default 5MB
 
+      console.log(
+        "[v0] Download request - File:",
+        `${file.name.split(".")[0]}_${contentType === "text" ? "extracted" : contentType}.${contentType === "text" ? "txt" : contentType === "audio" ? "mp3" : "mp4"}`,
+        "Type:",
+        contentType,
+      )
+
       switch (contentType) {
         case "video":
           fileUrl = extractedContent.videoUrl
@@ -518,9 +690,18 @@ export default function SimpleMediaExtractor() {
           if (content) {
             const blob = new Blob([content], { type: "text/plain;charset=utf-8" })
             const url = URL.createObjectURL(blob)
-            fileUrl = url
             fileName = `${file.name.split(".")[0]}_extracted.txt`
             fileSize = blob.size
+
+            const link = document.createElement("a")
+            link.href = url
+            link.download = fileName
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            URL.revokeObjectURL(url) // Clean up the blob URL
+            console.log("[v0] Text file downloaded directly:", fileName)
+            return
           }
           break
       }
@@ -533,10 +714,11 @@ export default function SimpleMediaExtractor() {
           document.body.appendChild(link)
           link.click()
           document.body.removeChild(link)
+          console.log("[v0] Placeholder file downloaded directly:", fileName)
           return
         }
 
-        // Use download manager for other files
+        // Use download manager for actual media files
         const response = await fetch("/api/download-manager", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -553,6 +735,14 @@ export default function SimpleMediaExtractor() {
           const downloadData = await response.json()
           console.log("[v0] Download queued:", downloadData.downloadId)
           setActiveTab("downloads")
+        } else {
+          console.log("[v0] Download manager failed, attempting direct download")
+          const link = document.createElement("a")
+          link.href = fileUrl
+          link.download = fileName
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
         }
       }
     } catch (error) {
@@ -586,6 +776,7 @@ export default function SimpleMediaExtractor() {
             // Extract base64 data from the audio data URL
             audioData = file.extractedContent.audioUrl.split(",")[1]
             console.log("[v0] Using extracted MP3 audio data URL for transcription")
+            console.log("[v0] Audio data extracted, length:", audioData.length)
           } else {
             // Try to fetch the audio URL
             const response = await fetch(file.extractedContent.audioUrl)
@@ -638,6 +829,8 @@ export default function SimpleMediaExtractor() {
         })
       }
 
+      console.log("[v0] Making transcription API call with audio data length:", audioData.length)
+
       const transcribeResponse = await fetch("/api/transcribe-audio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -656,8 +849,12 @@ export default function SimpleMediaExtractor() {
         }),
       })
 
+      console.log("[v0] Transcription API response status:", transcribeResponse.status)
+
       if (transcribeResponse.ok) {
         const transcribeData = await transcribeResponse.json()
+        console.log("[v0] Transcription API response:", transcribeData.success ? "Success" : "Failed")
+
         if (transcribeData.success) {
           // Update the file with transcription
           setFiles((prev) =>
@@ -674,7 +871,14 @@ export default function SimpleMediaExtractor() {
                 : f,
             ),
           )
+          console.log("[v0] Transcription completed successfully")
+        } else {
+          console.log("[v0] Transcription failed:", transcribeData.error || "Unknown error")
         }
+      } else {
+        console.log("[v0] Transcription API request failed with status:", transcribeResponse.status)
+        const errorText = await transcribeResponse.text()
+        console.log("[v0] Error response:", errorText)
       }
     } catch (error) {
       console.log("[v0] Audio transcription error:", error)
@@ -704,6 +908,61 @@ export default function SimpleMediaExtractor() {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              {uploadError && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm text-red-700 whitespace-pre-line">{uploadError}</div>
+                  <Button variant="ghost" size="sm" onClick={() => setUploadError(null)} className="ml-auto p-1 h-auto">
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              )}
+
+              {uploadProgress.length > 0 && (
+                <div className="mb-4 space-y-2">
+                  {uploadProgress.map((progress) => (
+                    <div key={progress.fileName} className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="truncate">{progress.fileName}</span>
+                        <span
+                          className={`text-xs px-2 py-1 rounded ${
+                            progress.status === "completed"
+                              ? "bg-green-100 text-green-800"
+                              : progress.status === "error"
+                                ? "bg-red-100 text-red-800"
+                                : "bg-blue-100 text-blue-800"
+                          }`}
+                        >
+                          {progress.status === "uploading"
+                            ? "Uploading..."
+                            : progress.status === "processing"
+                              ? "Processing..."
+                              : progress.status === "completed"
+                                ? "Completed"
+                                : "Error"}
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div
+                          className={`h-2 rounded-full transition-all duration-300 ${
+                            progress.status === "error" ? "bg-red-500" : "bg-blue-500"
+                          }`}
+                          style={{ width: `${progress.progress}%` }}
+                        />
+                      </div>
+                      {progress.error && <div className="text-xs text-red-600">{progress.error}</div>}
+                    </div>
+                  ))}
+
+                  {processing && (
+                    <Button variant="outline" size="sm" onClick={cancelUpload} className="mt-2 bg-transparent">
+                      <X className="w-4 h-4 mr-2" />
+                      Cancel Upload
+                    </Button>
+                  )}
+                </div>
+              )}
+
               <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-slate-400 transition-colors">
                 <input
                   type="file"
@@ -714,12 +973,21 @@ export default function SimpleMediaExtractor() {
                   id="file-upload"
                   disabled={processing}
                 />
-                <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center gap-2">
+                <label
+                  htmlFor="file-upload"
+                  className={`cursor-pointer flex flex-col items-center gap-2 ${processing ? "opacity-50 cursor-not-allowed" : ""}`}
+                >
                   <UploadCloud className="w-10 h-10 text-slate-400" />
                   <span className="text-lg font-medium text-slate-700">
-                    {processing ? "Processing..." : "Click to upload files"}
+                    {processing ? "Processing files..." : "Click to upload files"}
                   </span>
-                  <span className="text-sm text-slate-500">Support for video, audio, PDF, and text files</span>
+                  <span className="text-sm text-slate-500">
+                    Support for video, audio, PDF, and text files (max 500MB each)
+                  </span>
+                  <div className="text-xs text-slate-400 mt-2">
+                    <p>Supported formats: MP4, AVI, MOV, MP3, WAV, PDF, TXT, DOC, DOCX</p>
+                    <p>Maximum file size: 500MB per file</p>
+                  </div>
                 </label>
               </div>
             </CardContent>
